@@ -1,404 +1,309 @@
-# Messager — Multi-Tenant Real-Time Messaging Platform
+# Messenger
 
-## Overview
+## Multi-Tenant Real-Time Messaging Platform
 
-**Messager** is a multi-tenant real-time messaging platform inspired by products like Slack, Discord and WhatsApp.
+Messenger is a multi-tenant real-time communication platform designed to reproduce the kinds of problems that appear in large production messaging systems while keeping the product domain intentionally small.
 
-The objective of the project is to allow training, in a single system that is relatively simple to implement, of the main problems encountered in distributed production applications:
+From a user perspective, Messenger is straightforward: companies create workspaces, users join those workspaces, participate in channels or private chats, exchange messages, react to them, and receive notifications.
 
-- large-scale persistent connections;
-- fanout;
-- backpressure;
-- idempotence;
-- ordering of events;
-- concurrency;
-- distributed sessions;
-- strong and eventual consistency;
-- cache;
-- hotspots;
-- multi-tenancy;
-- asynchronous processing;
-- reprocessing;
-- rate limiting;
-- load isolation;
-- partial failures;
-- reconnection;
-- observability;
-- high concurrency;
-- ephemeral and durable events.
+The challenge of the project does not come from having dozens of unrelated business modules. It comes from making a relatively small messaging domain continue to behave correctly when it is exposed to concurrency, high traffic, large fanout, retries, reconnections, partial failures, uneven load distribution, slow clients, duplicated operations, and eventually consistent data.
 
-The domain must be purposely smaller than that of a logistics or financial platform.
-
-The main complexity should arise from scale, concurrency and distribution, not the number of business rules.
-
-The entire system must be able to exist in a local environment, without relying on external APIs or commercial services.
+The project is therefore intended to be both a usable messaging product and a practical architecture exercise.
 
 ---
 
-# 1. Functional objective
+# 1. Project Goals
 
-Messager should allow companies to create workspaces where users can:
+Messenger should support the core behavior expected from a modern communication platform:
 
-- participate in channels;
-- chat individually;
-- create private groups;
-- send messages;
-- edit messages;
-- delete messages;
-- react to messages;
-- respond in threads;
-- track unread messages;
-- view presence;
-- receive notifications;
-- use multiple devices simultaneously;
-- track delivery and reading confirmations;
-- reconnect and recover lost events;
-- search for messages;
-- browse history;
-- manage members and channels.
+- companies with multiple workspaces;
+- users that may belong to multiple companies and workspaces;
+- public and private channels;
+- direct conversations and group chats;
+- real-time message delivery;
+- message history;
+- reactions;
+- notifications;
+- unread message tracking;
+- user access control;
+- retry-safe message creation;
+- deterministic message ordering;
+- isolation between tenants;
+- graceful behavior under partial failures;
+- recovery after connection loss.
 
-The system must remain functional even when subjected to:
+The system should remain logically correct even when operating under high concurrency and degraded conditions.
 
-- high load;
-- large number of simultaneous connections;
-- slow clients;
-- unavailable components;
-- delayed processing;
-- retries;
-- duplicate events;
-- events out of order;
-- bulk reconnections;
-- workspaces of extremely different sizes;
-- channels with hundreds of thousands of participants.
+The most important objective is not only to make messaging work under normal conditions.
+
+The objective is to make the messaging model remain correct when many things happen at the same time.
 
 ---
 
-# 2. Multi-tenancy
+# 2. Domain Hierarchy
 
-The main unit of system isolation is the **Workspace**.
+The main organizational hierarchy is:
+
+```text
+Company
+  |
+  +-- Workspace
+        |
+        +-- Channel
+        |
+        +-- Chat
+              |
+              +-- Message
+                    |
+                    +-- Reaction
+```
+
+Users participate at different levels through explicit relationship entities.
+
+```text
+User
+  |
+  +-- Company User
+  |
+  +-- Workspace User
+  |
+  +-- Channel User
+  |
+  +-- Chat User
+```
+
+This separation is intentional.
+
+Being part of a company does not necessarily mean that a user has access to every workspace.
+
+Being part of a workspace does not necessarily mean that a user belongs to every private channel.
+
+Being part of a channel or chat represents a more specific access relationship.
+
+---
+
+# 3. Companies
+
+A **Company** is the highest tenant-level organizational entity.
 
 Examples:
 
 ```text
-Empresa A
-Empresa B
-Startup X
+Acme Corporation
+Northwind Labs
 MegaCorp
 ```
 
-Each workspace has:
-
-- members;
-- channels;
-- conversations;
-- messages;
-- permissions;
-- notifications;
-- settings;
-- metrics;
-- own limits.
-
-A user can join multiple workspaces.
+A company may contain one or many workspaces.
 
 Example:
 
 ```text
-User 10
+MegaCorp
 
-Workspace A → OWNER
-Workspace B → MEMBER
-Workspace C → GUEST
+├── Engineering
+├── Product
+├── Operations
+└── Internal Events
 ```
 
-Isolation is mandatory.
+Companies provide a logical ownership boundary for workspaces.
 
-A workspace can never:
+A company may have a very small number of users or may represent a major tenant responsible for a large percentage of the total platform traffic.
 
-- view members of another workspace without authorization;
-- consult messages from another workspace;
-- discover private channels from another workspace;
-- access user sessions from another workspace;
-- interfere with the operational processing of another workspace beyond normal infrastructure sharing.
+This uneven distribution is part of the expected behavior of the project.
 
 ---
 
-# 3. Users
+# 4. Company Users
 
-The user represents a global identity on the platform.
-
-A user can join multiple workspaces.
-
-Conceptual data:
-
-```text
-id
-name
-username
-status
-created_at
-```
-
-Possible presence states:
-
-```text
-ONLINE
-AWAY
-OFFLINE
-```
-
-Presence is an operational data and may have eventual consistency.
-
-A user who has just gone offline may continue to appear as online for a short interval.
-
-This is acceptable as long as the state subsequently converges.
-
----
-
-# 4. Memberships
-
-The relationship between a user and a workspace must be represented separately.
+The relationship between a user and a company is represented by `company_users`.
 
 Conceptually:
 
 ```text
 User
- ↓
-WorkspaceMembership
- ↓
-Workspace
+  |
+Company User
+  |
+Company
 ```
 
-Membership defines the user's context within that workspace.
+This relationship answers:
 
-Possible roles:
+> Does this user belong to this company?
 
-```text
-OWNER
-ADMIN
-MEMBER
-GUEST
-```
-
-The same user can have different roles in different workspaces.
+A user may belong to several companies.
 
 Example:
 
 ```text
 User 100
 
-MegaCorp   → ADMIN
-Startup X  → MEMBER
-Empresa Y  → GUEST
+Company A
+Company B
+Company C
 ```
 
-Removing a membership should prevent the user from accessing new data from that workspace.
+Company membership does not automatically imply access to every workspace.
+
+Workspace access is represented separately.
 
 ---
 
 # 5. Workspaces
 
-Each workspace represents an independent organization.
+A **Workspace** is the main collaboration environment inside a company.
 
-Possible conceptual attributes:
-
-```text
-id
-name
-slug
-status
-plan
-created_at
-```
-
-Possible states:
+Examples:
 
 ```text
-ACTIVE
-SUSPENDED
-DISABLED
+Engineering
+Finance
+Product
+Support
+All Hands
 ```
 
-A suspended workspace must not allow new business operations until it is reactivated.
+Every workspace belongs to exactly one company.
+
+A company may contain many workspaces.
+
+A workspace owns the communication contexts that exist inside it, including channels and chats.
+
+The workspace is also an important isolation boundary.
+
+A user operating inside one workspace must never be able to access protected data from another workspace without a valid membership.
 
 ---
 
-# 6. Plans and limits
+# 6. Workspace Users
 
-Each workspace has a dummy plan.
-
-Example:
-
-```text
-FREE
-PRO
-ENTERPRISE
-```
-
-Plans may establish limits for:
-
-- messages per minute;
-- users;
-- channels;
-- simultaneous connections;
-- search calls;
-- history size;
-- creation of conversations;
-- reactions;
-- reconnections;
-- administrative operations.
-
-Example:
-
-```text
-FREE
-100 messages/minute
-
-PRO
-10.000 messages/minute
-
-ENTERPRISE
-1.000.000 messages/minute
-```
-
-Excessive use must primarily affect the responsible workspace.
-
----
-
-# 7. Sessions
-
-A user can have multiple simultaneous sessions.
-
-Example:
-
-```text
-User 100
-
-Chrome
-Android
-Desktop
-Tablet
-```
-
-Each session must have its own identity.
+The relationship between users and workspaces is represented by `workspace_users`.
 
 Conceptually:
 
 ```text
-UserSession
-
-id
-user_id
-device
-status
-created_at
-last_seen_at
-revoked_at
+User
+  |
+Workspace User
+  |
+Workspace
 ```
 
-States:
+This relationship answers:
 
-```text
-ACTIVE
-REVOKED
-EXPIRED
-```
+> Can this user participate in this workspace?
 
-If a session is revoked, they should quickly lose access.
-
----
-
-# 8. Multiple devices
-
-The same user can be logged in on more than one device.
-
-When he performs an action on one device, the others should eventually reflect the same change.
+The same user may have access to some workspaces from a company while having no access to others.
 
 Example:
 
 ```text
-Android
- ↓
-sends message
- ↓
-Chrome receives update
-Desktop receives update
-Tablet receives update
+Company: MegaCorp
+
+Douglas
+├── Engineering     -> allowed
+├── Product         -> allowed
+├── Finance         -> not allowed
+└── Legal           -> not allowed
 ```
 
-The system must consider sessions from the same user as independent clients.
+Workspace membership is therefore more specific than company membership.
+
+Access checks should always respect the current workspace context.
 
 ---
 
-# 9. Channels
+# 7. Channels
 
-Workspaces can have channels.
+A **Channel** represents a named communication area inside a workspace.
 
-Types:
+Examples:
+
+```text
+#general
+#backend
+#incidents
+#product
+#random
+#all-hands
+```
+
+Each channel belongs to exactly one workspace.
+
+Channels may represent different visibility rules.
+
+Typical conceptual types are:
 
 ```text
 PUBLIC
 PRIVATE
 ```
 
-Examples:
+A public channel may be discoverable by workspace members.
 
-```text
-#geral
-#backend
-#produto
-#incidentes
-#random
-```
+A private channel should only be visible to users explicitly allowed to participate in it.
 
-Public channels are discoverable by authorized workspace members.
-
-Private channels can only be viewed by their members.
+A channel must never expose messages to users who are not authorized to access it.
 
 ---
 
-# 10. Channel Membership
+# 8. Channel Users
 
-Participation in private channels must be controlled.
+The relationship between users and channels is represented by `channel_users`.
 
 Conceptually:
 
 ```text
+User
+  |
+Channel User
+  |
 Channel
- ↓
-ChannelMembership
- ↓
-WorkspaceMembership
 ```
 
-Possible states:
+This relationship represents durable membership, not real-time presence.
 
-```text
-ACTIVE
-REMOVED
-```
+It answers:
 
-A user removed from a private channel cannot continue receiving new messages from that channel.
+> Is this user a participant in this channel?
+
+This distinction is important.
+
+The fact that a user belongs to a channel is durable business data.
+
+The fact that the same user is currently online is ephemeral operational state.
+
+These two concepts must not be treated as the same thing.
+
+When a user is removed from a private channel, that user must stop receiving new messages from that channel.
 
 ---
 
-# 11. Direct conversations
+# 9. Chats
 
-Users can also have private conversations.
+A **Chat** is the common messaging context of the application.
 
-Types:
+Messages are not divided into separate structures for channels, direct messages, and private groups.
+
+All of them use the same chat abstraction.
+
+Conceptual chat types are:
 
 ```text
 DIRECT
 GROUP
+CHANNEL
 ```
 
-### Direct conversation
+A direct chat represents a conversation between individual users.
 
 ```text
-Douglas ↔ John
+Douglas <-> John
 ```
 
-### Group chat
+A group chat represents a private conversation between multiple participants.
 
 ```text
 Douglas
@@ -407,260 +312,245 @@ Maria
 Pedro
 ```
 
-A private conversation has an explicit list of participants.
+A channel chat represents the message stream associated with a channel.
 
----
+```text
+Workspace
+  |
+Channel
+  |
+Chat
+  |
+Messages
+```
 
-# 12. Conversations as a common concept
+Every chat belongs to a workspace.
 
-Channels and private conversations can be conceptually treated as contexts in which messages are published.
-
-A message must belong to exactly one logical conversation.
-
-This conversation can represent:
-
-- public channel;
-- private channel;
-- direct conversation;
-- private group.
-
----
-
-# 13. Messages
-
-The central entity of Messager is the **Message**.
+A chat may optionally be associated with a channel.
 
 Conceptually:
 
 ```text
-Message
+DIRECT
+channel = none
 
-id
-conversation_id
-author_membership_id
-client_message_id
-type
-content
-created_at
-edited_at
-deleted_at
+GROUP
+channel = none
+
+CHANNEL
+channel = required
 ```
 
-Initial types:
-
-```text
-TEXT
-SYSTEM
-```
-
-The system may later support other types, but the core of the project must work only with textual messages.
+This allows all messaging behavior to share the same business rules and the same message model.
 
 ---
 
-# 14. Message status
+# 10. Chat Users
 
-A message can have conceptual states:
+The relationship between users and chats is represented by `chat_users`.
+
+Conceptually:
 
 ```text
-CREATED
-EDITED
-DELETED
+User
+  |
+Chat User
+  |
+Chat
 ```
 
-The current state does not necessarily eliminate the history.
+This relationship defines participation in a conversation.
 
-A deleted message may continue to exist for auditing purposes.
-
----
-
-# 15. Send idempotency
-
-Every message sent must have an identifier generated by the client:
+For example:
 
 ```text
-client_message_id
-```
+Chat A
+type = DIRECT
 
-Example:
-
-```text
-client_message_id = 019A82F...
-```
-
-If the customer repeats the same operation:
-
-```text
-send message
-client_message_id = ABC
-```
-
-ten times, the result should still be a single message.
-
-This rule applies even if:
-
-- the first request has been processed;
-- the answer has been lost;
-- the client has expired its timeout;
-- the client has reconnected;
-- the same operation is carried out by different instances of the application.
-
----
-
-# 16. Local Message State
-
-The client may present temporary statuses before definitive confirmation.
-
-Example:
-
-```text
-ENVIANDO
- ↓
-ENVIADA
+Participants:
+- Douglas
+- John
 ```
 
 or:
 
 ```text
-ENVIANDO
- ↓
-FALHA
+Chat B
+type = GROUP
+
+Participants:
+- Douglas
+- John
+- Maria
+- Pedro
 ```
 
-A message presented locally should not be considered officially created until the server confirms the operation.
+The membership can also represent conversation-specific state such as the user's latest read position.
+
+A user who is no longer allowed to participate in a chat must not continue receiving new messages from it.
 
 ---
 
-# 17. Ordering messages
+# 11. Messages
 
-Every conversation must have an official message order.
+The central business entity of Messenger is `chat_messages`.
+
+Every message belongs to exactly one chat and has exactly one author.
+
+A conceptual message contains information such as:
+
+```text
+id
+chat_id
+user_id
+client_message_id
+sequence
+content
+created_at
+updated_at
+edited_at
+deleted_at
+```
+
+The message is durable business data.
+
+Once the system confirms that a message has been accepted, that message must remain recoverable even if the real-time connection disappears immediately afterward.
+
+Real-time delivery is a delivery mechanism.
+
+It is not the source of truth for whether a message exists.
+
+---
+
+# 12. Message Idempotency
+
+Every message creation operation should contain a client-generated identifier:
+
+```text
+client_message_id
+```
+
+This identifier represents the logical send operation.
 
 Example:
 
 ```text
-User A sends "A"
-User B sends "B"
-User C sends "C"
+client_message_id = ABC
 ```
 
-almost simultaneously.
+Suppose the client sends the message and the system successfully stores it, but the response is lost.
 
-All clients must eventually converge to a single order:
+The client does not know whether the operation succeeded and retries:
 
 ```text
-1001 A
-1002 C
-1003 B
+ABC
+ABC
+ABC
+ABC
 ```
 
-It is not mandatory that the official order corresponds exactly to each customer's temporal perception.
+The result must still be exactly one message.
 
-It is mandatory that there is a deterministic order accepted by the system.
+This rule is fundamental.
+
+Retries are expected behavior and must not create duplicate business effects.
+
+The same principle should be applied whenever an operation may be retried because its previous result is uncertain.
 
 ---
 
-# 18. Delayed events
+# 13. Message Ordering
 
-An old event cannot overwrite a newer state.
+Messages inside a chat need an official deterministic order.
+
+Consider three users sending messages at nearly the same time:
+
+```text
+User A -> "A"
+User B -> "B"
+User C -> "C"
+```
+
+Different clients may observe the requests reaching the system at slightly different moments.
+
+The system must still establish one official sequence.
 
 Example:
 
 ```text
-1 MESSAGE_CREATED
-2 MESSAGE_EDITED
-3 MESSAGE_DELETED
+1001 -> A
+1002 -> C
+1003 -> B
 ```
 
-If a consumer processes again:
+The exact order is less important than having a single authoritative order.
 
-```text
-MESSAGE_EDITED
-```
+Eventually, all clients must converge to that order.
 
-after:
-
-```text
-MESSAGE_DELETED
-```
-
-the message cannot reappear.
+The system should not depend only on local timestamps from users to define message ordering.
 
 ---
 
-# 19. Editing messages
+# 14. Message Editing
 
-The author can edit messages when they have permission.
+Users may edit messages according to the project's permission rules.
 
 Example:
 
 ```text
 Original:
-"deploy will occur at 18"
+"Deployment starts at 18:00"
 
 Edited:
-"deploy will occur at 19"
+"Deployment starts at 19:00"
 ```
 
-All interested customers should eventually view the current version.
+Connected participants should eventually receive the updated state.
 
-An old version can never replace a newer version.
+An older update must never overwrite a newer message state.
+
+For example:
+
+```text
+1. MESSAGE_CREATED
+2. MESSAGE_EDITED
+3. MESSAGE_DELETED
+```
+
+If an old edit event arrives after deletion, the message must remain deleted.
 
 ---
 
-# 20. Version history
+# 15. Message Deletion
 
-The system can preserve message versions.
+Messages may be deleted by their author or by an authorized user.
 
-Example:
+Deletion is a state transition.
 
-```text
-Message 100
+A deleted message must not reappear because of:
 
-Version 1
-"deploy at 18"
+- delayed events;
+- retries;
+- stale cached data;
+- reconnection;
+- reprocessing;
+- another instance processing older information.
 
-Version 2
-"deploy at 19"
-
-Version 3
-"deploy at 20"
-```
-
-This allows auditing and training with event history.
-
----
-
-# 21. Deleting messages
-
-A message can be deleted.
-
-Conceptual types:
-
-```text
-DELETED_BY_AUTHOR
-DELETED_BY_ADMIN
-```
-
-After deletion, the average user can see:
+The visible application may display:
 
 ```text
 [Message removed]
 ```
 
-or simply stop viewing the content.
+or hide the content entirely.
 
-A deleted message cannot be reappeared due to:
-
-- retry;
-- delayed event;
-- reconnection;
-- reprocessing;
-- outdated cache.
+The important invariant is that old information cannot resurrect a newer deleted state.
 
 ---
 
-# 22. Reactions
+# 16. Reactions
 
-Users can react to messages.
+Users may react to messages.
 
 Examples:
 
@@ -671,97 +561,174 @@ Examples:
 🚀
 ```
 
-The same person cannot have two identical reactions to the same message.
+Reactions are represented by `chat_messages_reactions`.
 
-Invalid example:
+Conceptually:
 
 ```text
-User 10
-Message 100
+User
+  |
+Reaction
+  |
+Message
+```
+
+The same user must not be able to create the exact same reaction more than once for the same message.
+
+Invalid state:
+
+```text
+User 100
+Message 500
 
 👍
 👍
 👍
 ```
 
-The correct state is a single reaction of that type.
+Correct state:
+
+```text
+User 100
+Message 500
+
+👍
+```
+
+A popular message may receive thousands of reactions concurrently.
+
+The final state must remain correct even under heavy contention.
 
 ---
 
-# 23. Competition in reactions
+# 17. Notifications
 
-Popular posts can receive many reactions simultaneously.
+Notifications are represented by `user_notifications`.
 
-Example:
-
-```text
-50,000 reactions in 10 seconds
-```
-
-Counters must remain correct.
-
-Example:
-
-```text
-👍 31.028
-❤️ 13.283
-🚀 5.689
-```
-
-The system must avoid:
-
-- duplicity;
-- loss of reactions;
-- negative counters;
-- counters incompatible with the real state.
-
----
-
-# 24. Threads
-
-A message can start a thread.
-
-Example:
-
-```text
-Main message
-   ├─ resposta A
-   ├─ resposta B
-   └─ resposta C
-```
-
-The main context can display:
-
-```text
-42 responses
-last reply 10 seconds
-```
-
-without necessarily transmitting all responses to all customers.
-
----
-
-# 25. Mentions
-
-Messages can mention users or groups.
+A notification belongs to a user and represents something that should be surfaced to that user.
 
 Examples:
 
-```text
-@douglas
-@backend
-@everyone
-```
+- a direct message was received;
+- the user was mentioned;
+- a relevant channel received an important message;
+- the user was added to a conversation;
+- an administrative action affected the user.
 
-Mentions can generate notifications.
+Notifications are secondary to message persistence.
 
-A mention to a large number of users cannot prevent confirmation of the original message.
+If notification processing is temporarily unavailable, message creation should continue whenever the core message path is healthy.
+
+The notification can be created later from the durable event that represents the original operation.
 
 ---
 
-# 26. Durable Events
+# 18. Data Model
 
-Some events represent real changes to the domain and cannot be silently lost.
+The current project data model intentionally remains small.
+
+The main entities are:
+
+```text
+users
+
+companies
+company_users
+
+workspaces
+workspace_users
+
+channels
+channel_users
+
+chats
+chat_users
+
+chat_messages
+chat_messages_reactions
+
+user_notifications
+```
+
+The relationships can be summarized as:
+
+```text
+users
+  |
+  +---- company_users ---------- companies
+  |
+  +---- workspace_users -------- workspaces
+  |
+  +---- channel_users ---------- channels
+  |
+  +---- chat_users ------------- chats
+  |
+  +---- chat_messages
+  |
+  +---- chat_messages_reactions
+  |
+  +---- user_notifications
+```
+
+And the organizational hierarchy is:
+
+```text
+companies
+   |
+   +---- workspaces
+            |
+            +---- channels
+            |
+            +---- chats
+                    |
+                    +---- chat_messages
+                              |
+                              +---- chat_messages_reactions
+```
+
+A channel belongs to a workspace.
+
+A chat belongs to a workspace.
+
+A channel-based chat may also reference a channel.
+
+This model makes it possible to support direct chats, group chats, and channel messaging without duplicating the message infrastructure.
+
+---
+
+# 19. Data Ownership
+
+Every entity must have a clear ownership path.
+
+For example:
+
+```text
+Message
+  |
+Chat
+  |
+Workspace
+  |
+Company
+```
+
+This hierarchy allows the system to determine the tenant context of every message.
+
+The same principle applies to channels and conversation memberships.
+
+Tenant isolation is a fundamental business invariant.
+
+A request from one workspace must never accidentally access data from another workspace because of an incomplete filter or an incorrect relationship lookup.
+
+---
+
+# 20. Durable and Ephemeral State
+
+Messenger deliberately contains two different classes of state.
+
+## Durable state
+
+Durable state represents business facts that must survive failures.
 
 Examples:
 
@@ -771,1186 +738,982 @@ MESSAGE_EDITED
 MESSAGE_DELETED
 REACTION_ADDED
 REACTION_REMOVED
-MEMBER_ADDED
-MEMBER_REMOVED
-CHANNEL_CREATED
-CHANNEL_DELETED
+USER_ADDED_TO_CHAT
+USER_REMOVED_FROM_CHAT
+USER_ADDED_TO_CHANNEL
+USER_REMOVED_FROM_CHANNEL
 ```
 
-These events need to be able to be retrieved or reprocessed later.
+These operations affect the real business state.
 
----
+They must not disappear silently.
 
-# 27. Ephemeral events
+## Ephemeral state
 
-Other events have value only in the moment.
+Ephemeral state is useful only for a short period.
 
 Examples:
 
 ```text
-TYPING_STARTED
-TYPING_STOPPED
+USER_IS_TYPING
+USER_STOPPED_TYPING
 USER_ONLINE
 USER_AWAY
-USER_OFFLINE
 ```
 
-The occasional loss of these events does not compromise the integrity of the system.
+If one of these events is lost, the business history is still correct.
 
-They do not necessarily need to be stored historically.
+This difference is central to the project.
+
+Not every event needs the same reliability guarantees.
 
 ---
 
-# 28. Typing indicators
+# 21. Real-Time Delivery
 
-When a user starts typing:
+Users should receive new activity with minimal delay while connected.
 
-```text
-Douglas is typing...
-```
+Examples:
 
-other relevant participants can receive this information.
+- new messages;
+- edits;
+- deletions;
+- reactions;
+- notifications;
+- typing indicators;
+- membership changes.
 
-The event quickly ceases to be important.
+However, a live connection is not considered permanent storage.
 
-There should be no requirement to later recover this historical state.
+If the client disconnects, it must later be able to recover durable state from the authoritative history.
 
----
+This leads to an important rule:
 
-# 29. Presence
-
-Users may appear as:
-
-```text
-ONLINE
-AWAY
-OFFLINE
-```
-
-Attendance should reflect recent activity and connected sessions.
-
-If a user has an active session, they can still be considered online.
-
-Presence is eventual and does not need to be transactionally consistent.
+> Real-time delivery improves latency, but durable state guarantees correctness.
 
 ---
 
-# 30. Fanout
+# 22. Reconnection
 
-A message may need to be delivered to few or many customers.
-
-Simple example:
-
-```text
-DM
-
-2 participantes
-```
-
-Extreme example:
-
-```text
-#global
-
-500.000 members
-100.000 connected users
-```
-
-A single message may need to reach tens of thousands of connections.
-
-The system must support both extremes.
-
----
-
-# 31. Celebrity Channel
-
-The environment must purposely contain an extremely large channel.
+Clients may disconnect at any moment.
 
 Example:
 
 ```text
-#global
+Client disconnects.
+
+During the next 20 seconds:
+
+Message 100
+Message 101
+Message 102
+Message 103
+
+Client reconnects.
 ```
 
-Possible features:
+The client must be able to identify what changed while it was offline and converge to the latest valid state.
 
-```text
-500.000 members
-100.000 conectados simultaneamente
-40% of platform reads
-```
+The system must not assume that every durable event has been delivered live exactly once.
 
-This channel should generate natural hotspots.
+Reconnection is therefore a normal workflow, not an exceptional situation.
 
 ---
 
-# 32. Whale Workspace
+# 23. Slow Clients and Backpressure
 
-There must also be a workspace much larger than the others.
-
-Example:
-
-```text
-MegaCorp
-```
-
-With:
-
-```text
-1.000.000 users
-```
-
-While others may possess:
-
-```text
-20 users
-100 users
-1.000 users
-5.000 users
-```
-
-MegaCorp can represent:
-
-```text
-60% of traffic total
-```
-
-Even so, other workspaces must continue to operate.
-
----
-
-# 33. Backpressure
-
-Not all clients process events at the same speed.
+Different clients consume events at different speeds.
 
 Example:
 
 ```text
 Client A
-1.000 events/s
+500 events/second
 
 Client B
-5 events/s
+3 events/second
 ```
 
-The slow client cannot cause unlimited memory growth or harm fast clients.
+The slow client must not force the entire platform to accumulate unlimited pending work.
 
-Ephemeral events can lose relevance and be discarded.
+Ephemeral information may be dropped when it becomes obsolete.
 
-Durable events must remain recoverable later.
+For example, if several typing events are queued, an old typing event may no longer matter.
+
+Durable changes, however, must remain recoverable through synchronization.
+
+This distinction allows the system to protect itself from slow consumers without losing important business state.
 
 ---
 
-# 34. Reconnection
+# 24. Fanout
 
-Customers may lose connectivity.
+A message may need to reach only one other user or tens of thousands of connected participants.
 
 Example:
 
 ```text
-Client disconnects for 20 seconds.
+Direct chat
+2 users
 ```
 
-During this period, the following were created:
+Compared with:
 
 ```text
-Message 100
-Message 101
-Message 102
-Message 103
+#global
+500,000 members
+100,000 online
 ```
 
-When reconnecting, the client needs to be able to identify and recover the state they lost.
+The same messaging model must support both cases.
 
-The system cannot rely exclusively on real-time delivery.
+Large fanout must not make small conversations unusable.
 
----
-
-# 35. Recovery after reconnection
-
-After returning, the client should be able to converge to the current state.
-
-This includes:
-
-- new messages;
-- edited messages;
-- deleted messages;
-- new reactions;
-- removal of channels;
-- change of membership;
-- access revocation.
+A very large channel therefore becomes an intentional architectural stress case.
 
 ---
 
-# 36. Message delivery
+# 25. Uneven Traffic Distribution
 
-A message can have conceptual states from the point of view of each recipient.
+Messenger should not assume that traffic is evenly distributed.
+
+A realistic environment may look like:
+
+```text
+90% of chats
+fewer than 20 participants
+
+9% of chats
+20 to 5,000 participants
+
+0.9% of chats
+5,000 to 100,000 participants
+
+0.1% of chats
+more than 100,000 participants
+```
+
+Likewise, one company may generate most of the traffic.
 
 Example:
 
 ```text
-SENT
-DELIVERED
-READ
+MegaCorp = 60% of total traffic
+
+Company A = 5%
+Company B = 2%
+Company C = 1%
 ```
 
-These states are relative to the participant.
+A whale tenant must not make all smaller tenants unusable.
+
+This unevenness intentionally creates hotspots.
+
+---
+
+# 26. Celebrity Channel
+
+The project should include at least one extremely large channel.
 
 Example:
 
 ```text
-Message 100
+#global
 
-Douglas → READ
-Maria   → READ
-John    → DELIVERED
-Pedro   → SENT
+500,000 members
+100,000 connected users
 ```
 
-There is not necessarily a single global delivery status.
+A single message may trigger:
+
+```text
+100,000 real-time deliveries
+50,000 reactions
+10,000 replies
+thousands of notification or unread updates
+```
+
+The rest of the system must remain usable while this happens.
+
+This scenario exercises fanout, hotspots, contention, queue growth, load isolation, and backpressure simultaneously.
 
 ---
 
-# 37. Read positions
+# 27. Retry Behavior
 
-In large conversations, it is not necessary to individually register a read mark for each message.
+Retries are expected.
 
-There may be a concept of reading position.
+A client may retry because:
+
+- a request timed out;
+- the connection was interrupted;
+- the response was lost;
+- the client restarted;
+- an intermediate component failed.
+
+The server must treat retries according to the identity of the logical operation.
+
+For message creation:
+
+```text
+client_message_id = ABC
+```
+
+must always represent the same send operation.
+
+A retry must not create a new message merely because the transport request is new.
+
+---
+
+# 28. Duplicate Events
+
+Distributed processing may produce duplicate delivery attempts.
+
+A consumer must therefore be able to receive the same durable event multiple times without corrupting the final state.
 
 Example:
 
 ```text
-last_read_message = 93829
+REACTION_ADDED
+REACTION_ADDED
+REACTION_ADDED
 ```
 
-Then:
+for the same logical reaction must not produce three identical reactions.
 
-```text
-<= 93829
-lida
-
-> 93829
-unread
-```
-
-The position should never regress incorrectly.
+The same principle applies to message creation and other idempotent operations.
 
 ---
 
-# 38. Unread counters
+# 29. Out-of-Order Events
 
-The interface may present:
+Events may occasionally be processed in a different order from the order in which they were originally generated.
+
+Example:
 
 ```text
-#backend        12
-#geral           3
-John             1
-Incidentes      98
+MESSAGE_CREATED
+MESSAGE_EDITED
+MESSAGE_DELETED
 ```
 
-These counters must update quickly.
-
-They can have eventual consistency, as long as they converge to the correct value.
-
----
-
-# 39. Notifications
-
-The system can generate notifications when:
-
-- user is mentioned;
-- receive direct message;
-- monitored thread receives response;
-- is added to channel;
-- receives relevant administrative action.
-
-Temporary failure of notification processing should not prevent message creation.
-
----
-
-# 40. Search
-
-Users can search for messages using:
+A consumer may temporarily observe:
 
 ```text
-termo
-autor
-canal
-conversa
-data
+MESSAGE_CREATED
+MESSAGE_DELETED
+MESSAGE_EDITED
+```
+
+The final state must still be:
+
+```text
+DELETED
+```
+
+not:
+
+```text
+EDITED
+```
+
+The business model must protect itself from stale transitions.
+
+---
+
+# 30. Strong Consistency
+
+Some operations require immediately trustworthy state from the user's point of view.
+
+Examples:
+
+- message creation confirmation;
+- message deletion;
+- removal from a private channel;
+- removal from a chat;
+- permission changes affecting access.
+
+If the system confirms one of these operations, the user must not immediately observe a contradictory previous state through the authoritative path.
+
+---
+
+# 31. Eventual Consistency
+
+Other information may converge with a small delay.
+
+Examples:
+
+- online user counts;
+- unread counters;
+- notification counts;
+- analytics;
+- activity dashboards;
+- popularity rankings.
+
+Temporary divergence is acceptable if the data eventually converges to the correct state.
+
+Messenger should intentionally distinguish data that requires strict correctness from data that can tolerate delayed convergence.
+
+---
+
+# 32. Partial Failures
+
+Not every subsystem has the same criticality.
+
+For example:
+
+```text
+Notifications unavailable
+-> messages should continue
+```
+
+```text
+Analytics unavailable
+-> messages should continue
+```
+
+```text
+Presence unavailable
+-> messages should continue
+```
+
+```text
+Message persistence unavailable
+-> the system must not claim that a message was successfully created
+```
+
+The platform should degrade according to the failed capability rather than treating every partial failure as a total outage.
+
+---
+
+# 33. Reprocessing
+
+Some derived functionality may temporarily stop consuming events.
+
+Example:
+
+```text
+Notification processing is unavailable for 30 minutes.
+```
+
+Once it returns, it may need to process durable historical events from that period.
+
+Reprocessing must not duplicate the original business operation.
+
+Replaying:
+
+```text
+MESSAGE_CREATED
+```
+
+must not create the message again.
+
+The project should make a clear distinction between:
+
+- creating the original business state;
+- processing consequences derived from that state.
+
+---
+
+# 34. Rate Limiting and Abuse
+
+The system must assume that some users or tenants may generate abusive traffic.
+
+Examples:
+
+- sending messages in a tight loop;
+- repeatedly reconnecting;
+- rapidly adding and removing reactions;
+- issuing invalid operations;
+- attempting unauthorized access;
+- generating large bursts of requests.
+
+The damage caused by one abusive user or tenant should be isolated as much as possible.
+
+Rate limits may conceptually exist at different scopes:
+
+```text
+company
 workspace
+user
+chat
+operation type
 ```
 
-A workspace can have hundreds of millions of messages.
+The exact limits are not the important part.
 
-Search does not need to be a critical part of the submission path.
-
-If search is unavailable, messaging should continue to work.
+The important part is that one source of abusive load should not automatically consume all available capacity.
 
 ---
 
-# 41. History
+# 35. Access Control Rules
 
-A conversation can have millions of messages.
+Access control must follow the organizational hierarchy.
 
-The user must navigate:
+A user may interact with a workspace only if the user has the required workspace membership.
+
+A user may interact with a protected channel only if the channel access rules allow it.
+
+A user may interact with a chat only if the user participates in that chat or has an administrative permission that explicitly allows the operation.
+
+Examples of invalid behavior:
 
 ```text
-messages recent
- ↓
-messages older
- ↓
-messages ainda older
+User from Workspace A
+reads Chat from Workspace B
 ```
 
-While new messages continue to be created.
+```text
+User removed from private Channel X
+continues receiving new messages from Channel X
+```
 
-Navigation should not duplicate or skip messages just because new records were added.
+```text
+User outside a private group
+retrieves its message history
+```
+
+These are not merely application bugs.
+
+They violate the core tenant and privacy invariants of Messenger.
 
 ---
 
-# 42. Independent Messages and Consumers
+# 36. Notifications as Derived State
 
-A successfully created message can feed multiple streams.
+A notification should generally be treated as a consequence of another event.
 
 Example:
 
 ```text
 MESSAGE_CREATED
       |
-      ├─ realtime
-      ├─ notifications
-      ├─ unread counters
-      ├─ search
-      ├─ analytics
-      └─ audit
+      +-- message persisted
+      |
+      +-- realtime delivery
+      |
+      +-- notification may be generated
 ```
 
-These flows have different criticalities.
+The notification is not more important than the original message.
 
-Failure in analytics cannot invalidate the message.
+If notification processing fails temporarily, the message remains valid.
 
-Failure to search cannot prevent delivery.
+This is one of the simplest places in the project to practice separation between the critical path and derived asynchronous work.
 
 ---
 
-# 43. Reprocessing
+# 37. Logical Architecture
 
-A processor may be unavailable for a certain period of time.
+Messenger can be understood as several logical responsibilities.
 
-Example:
+No specific technology is required to understand this architecture.
+
+## Client interaction
+
+Receives user commands such as:
 
 ```text
-Analytics unavailable for 1 hora.
+send message
+edit message
+delete message
+react
+join chat
+leave chat
 ```
 
-After returning, you should be able to rebuild:
+## Core domain
+
+Validates:
 
 ```text
-messages/minute
-users ativos
-reactions/minute
-channels ativos
+tenant ownership
+membership
+permissions
+idempotency
+message ordering
+business invariants
 ```
 
-using historical events.
+## Durable state
 
-Reprocessing cannot repeat business effects.
-
----
-
-# 44. Rate limiting
-
-Limits may exist by:
-
-- workspace;
-- user;
-- session;
-- operation;
-- channel.
-
-Examples:
+Stores the authoritative business state:
 
 ```text
-messages/minute
-reactions/minute
-reconnections/minute
-channel creation/minute
-buscas/minuto
+companies
+workspaces
+channels
+chats
+messages
+reactions
+notifications
+memberships
 ```
 
-A client exceeding limits must be limited without compromising the entire platform.
+## Real-time distribution
 
----
+Propagates changes to currently connected clients.
 
-# 45. Spam and abuse
+## Event processing
 
-Customers may behave abusively.
-
-Examples:
-
-- send messages in a loop;
-- open many connections;
-- continually reconnect;
-- generate high frequency reactions;
-- perform repetitive searches;
-- try to access channels without authorization;
-- send invalid payloads.
-
-These behaviors must primarily affect the person responsible.
-
----
-
-# 46. Workspace administration
-
-Admins can:
-
-- create channels;
-- delete channels;
-- make channels private;
-- add users;
-- remove users;
-- change roles;
-- delete messages;
-- block members;
-- view audit.
-
-Critical administrative actions need to be auditable.
-
----
-
-# 47. User blocking
-
-When a user is blocked within a workspace:
+Handles secondary consequences such as:
 
 ```text
-Membership = BLOCKED
-```
-
-he should lose access quickly.
-
-This includes already connected sessions.
-
-The system must prevent:
-
-- new messages;
-- new readings;
-- new reactions;
-- new real-time events from that workspace.
-
----
-
-# 48. Session revocation
-
-It should also be possible to revoke a specific session or all sessions for a user.
-
-Revoked sessions cannot continue to operate indefinitely.
-
----
-
-# 49. Audit logs
-
-Important administrative actions must generate records.
-
-Example:
-
-```text
-15:42:19
-
-actor:
-User 100
-
-workspace:
-MegaCorp
-
-action:
-DELETE_MESSAGE
-
-message:
-938292
-```
-
-The audit must identify:
-
-- who performed it;
-- in which workspace;
-- what action;
-- which entity;
-- when it occurred.
-
-Regular users cannot edit audit records.
-
----
-
-# 50. Strong consistency
-
-Some operations require strong coherence from the user's point of view.
-
-Examples:
-
-```text
-newly sent message
-deleted message
-membership removida
-blocked user
-canal privado removido
-```
-
-After a critical operation is committed, the user should not immediately observe a previous incompatible state.
-
----
-
-# 51. Eventual consistency
-
-Other data may converge with a small delay.
-
-Examples:
-
-```text
-online users
-contadores
+notifications
+derived counters
+search indexing
 analytics
-rankings
-statistics
+auditing
 ```
 
-Small temporary divergences are acceptable.
+## Recovery
+
+Allows clients and consumers to catch up after missing durable events.
+
+These responsibilities may operate independently while still participating in the same end-to-end message journey.
 
 ---
 
-# 52. Hotspots
+# 38. Critical Path vs Secondary Work
 
-Traffic distribution must be intentionally uneven.
+One of the most important architectural decisions in Messenger is identifying what must complete before a message can be confirmed.
 
-Example:
+The critical business fact is:
 
 ```text
-Canal A
-4 users
-
-Canal B
-30 users
-
-Canal C
-400 users
-
-Canal D
-5.000 users
-
-#global
-500.000 users
+The message exists in the authoritative state.
 ```
 
-The same goes for workspaces.
+Other actions may be consequences:
+
+```text
+deliver to connected clients
+create notifications
+update counters
+update analytics
+update search
+```
+
+A failure in a secondary consequence must not retroactively invalidate a message that was successfully accepted.
+
+This allows the project to exercise failure isolation and asynchronous processing without adding unrelated business domains.
 
 ---
 
-# 53. Hot data
+# 39. Message Journey
 
-Some data is accessed much more than others.
+A typical successful message journey is conceptually:
 
-Examples:
+```text
+User sends command
+      |
+validate identity
+      |
+validate workspace/chat access
+      |
+validate idempotency
+      |
+assign official ordering
+      |
+persist message
+      |
+confirm authoritative creation
+      |
+publish consequences
+      |
+deliver to connected participants
+      |
+update derived state
+```
 
-- workspace configuration;
-- memberships;
-- permissions;
-- user data;
-- last accessed channels;
-- recent messages;
-- unread counters;
-- presence.
+A retry may enter the same journey again.
 
-The system must consider this asymmetry as natural behavior.
+If the original operation was already completed, the system must return the existing result instead of creating another message.
 
 ---
 
-# 54. Channel with high writing
-
-In addition to channels with high reading, there must be a channel that receives a large number of messages.
-
-Example:
-
-```text
-#live-event
-
-10.000 messages/minute
-```
-
-This scenario should coexist with small talk.
-
----
-
-# 55. Viral message
-
-A message in a large channel can receive:
-
-```text
-50.000 reactions
-20.000 responses
-```
-
-in a few seconds.
-
-The other channels should not stop working because of this.
-
----
-
-# 56. Workspace Dashboard
-
-Admins can view operational indicators.
-
-Examples:
-
-```text
-online users
-messages/s
-channels ativos
-reactions/s
-novos members
-connections
-```
-
-These indicators may have eventual consistency.
-
----
-
-# 57. Global Dashboard
-
-Platform administrators can view:
-
-```text
-workspaces ativos
-connected users
-messages/s
-events/s
-connections
-erros
-backlog
-```
-
-Ordinary tenants cannot access global platform information.
-
----
-
-# 58. Partial failure
-
-Not all components have the same criticality.
-
-Example:
-
-## Analytics unavailable
-
-```text
-messages continue
-```
-
-## Search unavailable
-
-```text
-messages continue
-```
-
-## Presence unavailable
-
-```text
-messages continue
-```
-
-## Notifications unavailable
-
-```text
-messages continue
-```
-
-## Message persistence unavailable
-
-```text
-the system cannot claim that the message was created
-```
-
----
-
-# 59. Operating modes
-
-The system may have operational states.
-
-## NORMAL
-
-Everything available.
-
-## DEGRADED
-
-Messages continue, but secondary functions may be delayed.
-
-## READ_ONLY
-
-New messages cannot be securely accepted, but existing history may remain available.
-
-## CRITICAL
-
-Not even reliable reading can be guaranteed.
-
-The interface must reflect the actual state of the platform.
-
----
-
-# 60. Peak Scenario — All Hands
-
-A large internal event can generate a huge burden.
-
-Example:
-
-```text
-20:00
-Company All Hands starts.
-```
-
-In a few seconds:
-
-```text
-100.000 users connect
-```
-
-After:
-
-```text
-CEO sends message no #global
-```
-
-Then:
-
-```text
-100.000 clients receive the message
-40.000 reagem
-20,000 start typing
-5.000 respondem
-```
-
-The system should continue to process small conversations normally.
-
----
-
-# 61. Mass reconnection scenario
-
-During the event:
-
-```text
-an instance disappears
-```
-
-and:
-
-```text
-20,000 clients disconnect
-```
-
-A few seconds later:
-
-```text
-20,000 clients attempt to reconnect
-```
-
-While new messages continue to be created.
-
-The system needs to avoid turning the reconnection into a second, larger failure.
-
----
-
-# 62. Slow client scenario
-
-During a very active channel:
-
-```text
-Client A
-processa 500 events/s
-
-Client B
-processa 2 events/s
-```
-
-Customer B cannot force the system to maintain an infinite queue.
-
-Ephemeral events can be discarded.
-
-Durable events must remain recoverable after synchronization.
-
----
-
-# 63. Out of order event scenario
+# 40. Failure During Message Creation
 
 Consider:
 
 ```text
-1 MESSAGE_CREATED
-2 MESSAGE_EDITED
-3 MESSAGE_DELETED
+1. User sends message.
+2. Message is successfully accepted.
+3. Client connection disappears before confirmation arrives.
+4. Client reconnects.
+5. Client retries the same client_message_id.
 ```
 
-A consumer may temporarily observe:
+Expected result:
 
 ```text
-1
-3
-2
+Exactly one message exists.
 ```
 
-Even so, the end state must continue:
+The client should eventually discover that the original operation succeeded.
+
+This is one of the central failure scenarios of the project.
+
+---
+
+# 41. Failure During Fanout
+
+Consider:
 
 ```text
-DELETED
+Message is stored successfully.
 ```
 
-and no:
+Then real-time distribution partially fails.
+
+Some connected users receive the message immediately.
+
+Others do not.
+
+The message itself is still valid.
+
+Clients that missed the live event must recover it through synchronization or history.
+
+The system must never equate:
 
 ```text
-EDITED
+not delivered live
+```
+
+with:
+
+```text
+message does not exist
 ```
 
 ---
 
-# 64. Retry scenario
+# 42. Failure During Notification Processing
 
-A customer sends:
-
-```text
-MESSAGE_CREATE
-client_message_id = ABC
-```
-
-The server processes the operation, but the response does not arrive.
-
-The client repeats:
+Consider:
 
 ```text
-ABC
-ABC
-ABC
-ABC
+Message is stored.
+Realtime delivery works.
+Notification processor is unavailable.
 ```
 
-The system must continue to have exactly one message associated with the operation.
+The conversation must continue working.
+
+Once notification processing returns, it can derive the missed notifications from durable events when appropriate.
+
+This scenario trains recovery and reprocessing without affecting the core message path.
 
 ---
 
-# 65. Reprocessing scenario
+# 43. Mass Reconnection Scenario
 
-Analytics are unavailable for a period of time.
+A large group of clients may disconnect at once.
 
-It is then reactivated and reprocesses old events.
-
-The system must rebuild statistics without:
-
-- create duplicate messages;
-- repeat notifications incorrectly;
-- duplicate reactions;
-- changing final states incorrectly.
-
----
-
-# 66. Whale workspace scenario
-
-During a spike:
+Example:
 
 ```text
-MegaCorp = 60% of traffic
+20,000 clients disconnect.
+```
+
+Seconds later:
+
+```text
+20,000 clients attempt to reconnect.
 ```
 
 At the same time:
 
 ```text
-Workspace A = 2%
-Workspace B = 1%
-Workspace C = 0.5%
+new messages continue arriving.
 ```
 
-MegaCorp cannot prevent small workspaces from sending and receiving messages.
+The recovery process must not create a failure larger than the original disconnect.
+
+This scenario exercises thundering-herd behavior and load isolation.
 
 ---
 
-# 67. Celebrity Channel Scenario
+# 44. Slow Consumer Scenario
+
+Consider a highly active chat.
 
 ```text
-#global
-500.000 members
-100.000 online
+Fast client:
+500 events/second
+
+Slow client:
+2 events/second
 ```
 
-A message is sent.
+The slow client must not create an unbounded backlog inside the live delivery path.
 
-In the next few seconds:
+Durable messages remain available through history.
 
-```text
-100.000 real-time deliveries
-50.000 reactions
-10.000 responses
-thousands of unread updates
-```
-
-The remainder of the platform must remain operational.
+Ephemeral events may be dropped when they are no longer useful.
 
 ---
 
-# 68. Chaos scenario
+# 45. High-Contention Reaction Scenario
 
-During a spike:
-
-```text
-a component becomes slow
-```
-
-After:
+A viral message receives:
 
 ```text
-a processor stops
+50,000 reactions
 ```
 
-After:
+within a few seconds.
 
-```text
-an instance disappears
-```
+Many users may react at almost the same time.
 
-After:
+The system must preserve:
 
-```text
-thousands of clients reconnect
-```
+- reaction uniqueness;
+- correct message ownership;
+- tenant isolation;
+- eventual counter correctness.
 
-While:
-
-```text
-messages continue arriving
-```
-
-Business rules must continue to be respected.
+Other chats must remain responsive.
 
 ---
 
-# 69. Fundamental invariants
+# 46. Whale Tenant Scenario
 
-These rules represent the laws of Messager.
-
-If any of these are broken, the system must be considered incorrect.
-
-1. The same idempotent operation can never create two messages.
-2. All clients must eventually converge on the same official message order.
-3. A deleted message cannot reappear due to old event.
-4. An old version can never overwrite a newer version.
-5. A workspace can never access data from another workspace without authorization.
-6. A user removed from a private channel cannot continue receiving new messages from that channel.
-7. A blocked user should quickly lose access.
-8. Durable events cannot disappear silently.
-9. Ephemeral events can be discarded without compromising the domain.
-10. A slow customer cannot harm fast customers.
-11. Reprocessing cannot duplicate business effects.
-12. The same reaction from the same user to the same message cannot exist twice.
-13. Derived counters must eventually converge to the correct state.
-14. Minor failures must not prevent message creation.
-15. Confirmed messages should remain retrievable after reconnection.
-16. A giant workspace cannot monopolize all resources indefinitely.
-17. A reading position cannot regress incorrectly.
-18. A revoked session cannot continue to operate indefinitely.
-19. Users without permission cannot access private channels.
-20. The official ordering of a conversation must remain deterministic.
-21. An old event cannot replace a newer incompatible state.
-22. An analytics failure cannot invalidate existing messages.
-23. A search failure cannot prevent sending.
-24. A critical administrative operation must be auditable.
-25. A message should never be confirmed to the client if its creation has not actually been accepted.
-
----# 70. Initial conceptual model
-
-The data core can be conceptually understood as:
-
-```text
-Users
-  |
-  +---- UserSessions
-  |
-  +---- WorkspaceMemberships
-               |
-               v
-           Workspaces
-               |
-        +------+------+
-        |             |
-     Channels     Conversations
-        |             |
-        +------ Messages
-                  |
-          +-------+--------+
-          |       |        |
-      Reactions Versions Threads
-          |
-      ReadPositions
-```
-
-Other important conceptual entities:
-
-```text
-ChannelMemberships
-ConversationMembers
-Notifications
-AuditLogs
-MessageDeliveryState
-```
-
----
-
-# 71. Main entities
-
-##Users
-
-Global identity.
-
-## UserSessions
-
-Active sessions and devices.
-
-## Workspaces
-
-Platform Tenants.
-
-## WorkspaceMemberships
-
-Relationship between user and workspace.
-
-##Channels
-
-Public and private channels.
-
-## ChannelMemberships
-
-Participation in private channels.
-
-##Conversations
-
-Logical message context.
-
-## ConversationMembers
-
-Participants in private conversations.
-
-## Messages
-
-Messages sent.
-
-## MessageVersions
-
-Change history.
-
-##Reactions
-
-Reactions per user.
-
-## ReadPositions
-
-Last position read by participant.
-
-## Notifications
-
-Notifications generated by events.
-
-## AuditLogs
-
-Administrative audit.
-
----
-
-# 72. Conceptual scale
-
-The domain must assume that the platform can reach:
-
-```text
-millions of users
-millions of sessions
-hundreds of thousands of channels
-hundreds of millions of messages
-billions of events
-hundreds of thousands of simultaneous connections
-```
-
-It is not necessary to maintain this volume permanently during development.
-
-The objective is that the rules do not assume a small system.
-
----
-
-# 73. Expected load distribution
-
-The distribution should not be uniform.
+A single company may generate a disproportionate amount of traffic.
 
 Example:
 
 ```text
-90% of channels
-fewer than 50 users
-
-9% of channels
-50 to 5,000 users
-
-0.9% of channels
-5,000 to 100,000 users
-
-0.1% of channels
-more than 100.000 users
+MegaCorp
+60% of total platform traffic
 ```
 
-Likewise, a few workspaces can account for a large portion of your traffic.
+At the same time, many smaller companies continue using the platform.
+
+The large tenant must not permanently starve smaller tenants.
+
+This scenario forces the architecture to deal with unfair load distribution instead of only balanced synthetic traffic.
 
 ---
 
-#74. Architectural Problems Exercised
+# 47. Combined Stress Scenario
 
-| Problem | Demonstration at Messager |
-|---|---|
-| Many connections | customers connected in real time |
-| Bank pool | high volume of messages and sessions |
-| N+1 | channels, members, messages and reactions |
-| Cache | memberships, channels, users and unread |
-| Thundering herd | reconnections and giant channels |
-| Distributed session | multiple devices |
-| Balancing | persistent connections |
-| Fanout | messages in large channels |
-| Backpressure | slow customers |
-| Idempotence | sending and retries |
-| Replication lag | reading after sending |
-| Containment | reactions, counters, memberships |
-| Hotspots | #global and MegaCorp |
-| Status + events | message creation |
-| Cascade failure | search, notifications, presence |
-| Restart during traffic | connections and reconnections |
-| Flood | spam and reconnect storms |
-| Observability | journey of a message |
-| Replay | analytics and reconstruction |
-| Eventual consistency | presence, counters and dashboards |
-| Strong consistency | upload, deletion and permissions |
-| Ordering | official thread by conversation |
+The final project scenario should combine several problems.
+
+Example:
+
+```text
+100,000 connected clients
+
+MegaCorp generates 60% of traffic
+
+#global contains 500,000 members
+
+one message becomes viral
+
+50,000 reactions arrive
+
+10,000 messages are created in a short interval
+
+20,000 clients reconnect
+
+some clients are extremely slow
+
+duplicate requests appear
+
+some events arrive out of order
+
+notification processing is delayed
+
+another secondary consumer is temporarily unavailable
+```
+
+While all of this happens:
+
+```text
+direct chats must still work
+private channels must remain private
+message order must remain deterministic
+retries must remain idempotent
+deleted messages must remain deleted
+tenant isolation must remain intact
+```
+
+This is the scenario that defines whether the project has reached its architectural objective.
 
 ---
 
-# 75. Completion criteria
+# 48. Core Business Invariants
 
-The project should not be considered completed just because users are able to exchange messages.
+The following rules are the laws of Messenger.
 
-It must continue to respect the invariants when simultaneously subjected to:
+If one of them is violated, the system is incorrect.
 
-- many connections;
-- high message rate;
+1. The same logical message operation must not create more than one message.
+2. Every message belongs to exactly one chat.
+3. Every chat belongs to exactly one workspace.
+4. Every workspace belongs to exactly one company.
+5. A user must not access protected data from a workspace without authorization.
+6. A user removed from a private channel must not continue receiving new protected messages from it.
+7. A user removed from a private chat must not continue receiving new messages from it.
+8. Message ordering inside a chat must have one authoritative sequence.
+9. All clients must eventually converge to the same authoritative message order.
+10. An old edit must never overwrite a newer message state.
+11. A deleted message must not reappear because of stale or delayed processing.
+12. The same user must not create the same reaction more than once for the same message.
+13. Durable business events must not disappear silently.
+14. Ephemeral events may be lost without corrupting durable business state.
+15. A slow client must not degrade all fast clients indefinitely.
+16. A missed live event must remain recoverable when it represents durable state.
+17. Reprocessing must not duplicate the original business operation.
+18. Secondary subsystem failures must not unnecessarily invalidate successful message creation.
+19. A large tenant must not permanently monopolize the entire platform.
+20. Derived data may be eventually consistent but must converge to a valid state.
+21. A message must never be confirmed as successfully created if the authoritative state did not accept it.
+22. Retry behavior must be safe even when the result of a previous attempt is unknown.
+23. Tenant ownership must remain traceable through the complete data hierarchy.
+24. Membership changes affecting access must eventually invalidate stale authorization state.
+25. High concurrency must not break uniqueness rules.
+
+---
+
+# 49. Concepts Practiced by the Project
+
+Messenger is intentionally designed to exercise the following architecture concepts in one product.
+
+## Multi-tenancy
+
+Companies and workspaces create isolation boundaries with uneven tenant sizes.
+
+## Persistent real-time connections
+
+Users remain connected while receiving messages and events.
+
+## Fanout
+
+One message may need to reach tens of thousands of clients.
+
+## Backpressure
+
+Slow clients must not create unlimited queues.
+
+## Idempotency
+
+Retries must not duplicate messages or other business effects.
+
+## Ordering
+
+Concurrent message creation must converge to an authoritative sequence.
+
+## Strong consistency
+
+Critical access and message operations require trustworthy authoritative state.
+
+## Eventual consistency
+
+Counters, presence, analytics, and similar derived information may converge later.
+
+## Hotspots
+
+Large channels and whale tenants create intentionally uneven traffic.
+
+## Load isolation
+
+Heavy or abusive actors must not automatically affect every other tenant.
+
+## Durable vs ephemeral events
+
+Different event classes require different reliability guarantees.
+
+## Partial failure
+
+Secondary capabilities may fail without stopping core messaging.
+
+## Retry safety
+
+Unknown operation outcomes must remain safe to retry.
+
+## Reconnection recovery
+
+Clients must recover missed durable state after losing the live connection.
+
+## Duplicate processing
+
+Consumers must tolerate duplicate event delivery.
+
+## Out-of-order processing
+
+Stale events must not corrupt newer state.
+
+## Reprocessing
+
+Derived consumers must be able to catch up from historical durable events.
+
+## High contention
+
+Viral messages may create large concurrent reaction and delivery workloads.
+
+## Observability
+
+A message journey should be traceable across validation, persistence, event propagation, real-time distribution, and derived processing.
+
+## Capacity and scaling decisions
+
+The same product must support both tiny conversations and extremely large communication spaces.
+
+---
+
+# 50. What Makes the Project Challenging
+
+Messenger is intentionally small from a product perspective.
+
+The difficulty does not come from implementing dozens of business modules.
+
+The difficulty comes from answering questions such as:
+
+- What happens if the response to a successful message creation is lost?
+- What happens if two users send messages at the same time?
+- What happens if 100,000 users need the same event?
+- What happens if one connected client stops consuming data?
+- What happens if a large number of clients reconnect simultaneously?
+- What happens if the same event is processed twice?
+- What happens if an older event is processed after a newer event?
+- What happens if notifications are unavailable?
+- What happens if one company generates most of the platform traffic?
+- What happens if authorization changes while a user is still connected?
+- What happens if a client misses real-time delivery?
+- What happens if a viral message receives tens of thousands of concurrent reactions?
+
+These are the problems the project is intended to train.
+
+---
+
+# 51. Completion Criteria
+
+Messenger should not be considered complete merely because two users can exchange messages.
+
+The project reaches its objective when the business invariants continue to hold under scenarios involving:
+
+- high concurrent message volume;
+- many simultaneous connected users;
 - giant channels;
-- giant workspaces;
-- slow clients;
-- duplicate events;
+- whale tenants;
+- duplicate requests;
+- delayed responses;
 - retries;
-- bulk reconnections;
-- events out of order;
-- unavailable components;
-- late workers;
+- slow clients;
+- mass reconnections;
+- duplicated events;
+- out-of-order events;
+- partial subsystem failures;
+- delayed secondary processing;
 - reprocessing;
-- spam;
+- high reaction contention;
 - permission changes;
-- locks;
-- concurrent editing and deletion;
-- high rate of reactions.
+- private channels;
+- direct conversations;
+- uneven traffic distribution.
 
-The ultimate goal is to have a relatively simple system from a functional point of view, but capable of reproducing real problems of scalability, concurrency and distributed architecture.
+The final system should be simple to understand as a product but difficult to break as a distributed system.
+
+That is the central purpose of Messenger.
