@@ -1,5 +1,3 @@
-BEGIN;
-
 -- ============================================================
 -- Função global para atualização automática de updated_at
 -- ============================================================
@@ -642,6 +640,3 @@ CREATE TRIGGER user_notifications_set_updated_at
 BEFORE UPDATE ON user_notifications
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
-
-
-COMMIT;
