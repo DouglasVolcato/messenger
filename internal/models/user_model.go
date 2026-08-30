@@ -3,16 +3,21 @@ package models
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
 )
 
 type User struct {
-	ID          string
-	Name        string
-	Email       string
-	Password    string
-	GlobalAdmin bool
+	ID           string
+	Name         string
+	Username     string
+	Email        string
+	Password     string
+	PasswordHash string
+	Status       string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 func (u *User) Create(tx *sql.Tx, ctx context.Context) error {
@@ -22,97 +27,83 @@ func (u *User) Create(tx *sql.Tx, ctx context.Context) error {
 	}
 	u.ID = id
 
-	hashedPassword, err := utils.HashPassword(u.Password)
-	if err != nil {
-		return err
+	if u.Status == "" {
+		u.Status = "ACTIVE"
 	}
-	u.Password = hashedPassword
 
-	_, err = tx.ExecContext(
-		ctx,
-		"insert into users (id,name,email,password,global_admin) values ($1,$2,$3,$4,$5)",
-		u.ID, u.Name, u.Email, u.Password, u.GlobalAdmin,
-	)
-	return err
+	if u.Password != "" {
+		u.PasswordHash, err = utils.HashPassword(u.Password)
+		if err != nil {
+			return err
+		}
+		u.Password = ""
+	}
+
+	return tx.QueryRowContext(ctx, `
+		INSERT INTO users (id, name, username, email, password_hash, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING created_at, updated_at`,
+		u.ID, u.Name, u.Username, u.Email, u.PasswordHash, u.Status,
+	).Scan(&u.CreatedAt, &u.UpdatedAt)
 }
 
 func (u *User) Update(tx *sql.Tx, ctx context.Context) error {
-	_, err := tx.ExecContext(
-		ctx,
-		"update users set name = $1, email = $2 where id = $3",
-		u.Name, u.Email, u.ID,
-	)
-	return err
-}
-
-func (u *User) UpdateGlobalAdmin(tx *sql.Tx, ctx context.Context) error {
-	_, err := tx.ExecContext(
-		ctx,
-		"update users set global_admin = $1 where id = $2",
-		u.GlobalAdmin, u.ID,
-	)
-	return err
+	return tx.QueryRowContext(ctx, `
+		UPDATE users
+		SET name = $1, username = $2, email = $3, status = $4
+		WHERE id = $5
+		RETURNING updated_at`,
+		u.Name, u.Username, u.Email, u.Status, u.ID,
+	).Scan(&u.UpdatedAt)
 }
 
 func (u *User) UpdatePassword(tx *sql.Tx, ctx context.Context) error {
-	hashedPassword, err := utils.HashPassword(u.Password)
-	if err != nil {
-		return err
+	if u.Password != "" {
+		hashedPassword, err := utils.HashPassword(u.Password)
+		if err != nil {
+			return err
+		}
+		u.PasswordHash = hashedPassword
+		u.Password = ""
 	}
-	u.Password = hashedPassword
 
-	_, err = tx.ExecContext(
-		ctx,
-		"update users set password = $1 where id = $2",
-		u.Password, u.ID,
-	)
-	return err
+	return tx.QueryRowContext(ctx, `
+		UPDATE users
+		SET password_hash = $1
+		WHERE id = $2
+		RETURNING updated_at`,
+		u.PasswordHash, u.ID,
+	).Scan(&u.UpdatedAt)
 }
 
 func (u *User) Delete(tx *sql.Tx, ctx context.Context) error {
-	_, err := tx.ExecContext(ctx, "delete from users where id = $1", u.ID)
+	_, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = $1", u.ID)
 	return err
 }
 
 func (u *User) GetOne(db *sql.DB, ctx context.Context) error {
-	result, err := db.QueryContext(
-		ctx,
-		"select id, name, email, global_admin from users where id = $1",
+	return db.QueryRowContext(ctx, `
+		SELECT id, name, username, email, password_hash, status, created_at, updated_at
+		FROM users
+		WHERE id = $1`,
 		u.ID,
-	)
-	if err != nil {
-		return err
-	}
-
-	if result.Next() {
-		err = result.Scan(&u.ID, &u.Name, &u.Email, &u.GlobalAdmin)
-		if err != nil {
-			return err
-		}
-	} else {
-		return sql.ErrNoRows
-	}
-	return nil
+	).Scan(&u.ID, &u.Name, &u.Username, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt, &u.UpdatedAt)
 }
 
 func (u *User) GetOneByEmail(db *sql.DB, ctx context.Context) error {
-	result, err := db.QueryContext(
-		ctx,
-		"select id, name, email, password, global_admin from users where email = $1",
+	return db.QueryRowContext(ctx, `
+		SELECT id, name, username, email, password_hash, status, created_at, updated_at
+		FROM users
+		WHERE email = $1`,
 		u.Email,
-	)
-	if err != nil {
-		return err
-	}
-	defer result.Close()
+	).Scan(&u.ID, &u.Name, &u.Username, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt, &u.UpdatedAt)
+}
 
-	if result.Next() {
-		err = result.Scan(&u.ID, &u.Name, &u.Email, &u.Password, &u.GlobalAdmin)
-		if err != nil {
-			return err
-		}
-	} else {
-		return sql.ErrNoRows
-	}
-	return nil
+func (u *User) GetOneByUsername(db *sql.DB, ctx context.Context) error {
+	return db.QueryRowContext(ctx, `
+		SELECT id, name, username, email, password_hash, status, created_at, updated_at
+		FROM users
+		WHERE username = $1`,
+		u.Username,
+	).Scan(&u.ID, &u.Name, &u.Username, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt, &u.UpdatedAt)
 }
