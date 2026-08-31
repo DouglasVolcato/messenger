@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+
+<html class="h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Create Channel - Messenger</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,200..900;1,7..72,200..900&amp;family=Nunito+Sans:ital,opsz,wght@0,6..12,200..1000;1,6..12,200..1000&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#e4e0d8",
+                    "primary-fixed": "#c8e8d0",
+                    "inverse-primary": "#8ecf9e",
+                    "surface-container": "#f0ece4",
+                    "error": "#b83230",
+                    "surface-dim": "#dbd7cf",
+                    "inverse-surface": "#2e3230",
+                    "secondary-fixed-dim": "#d4ccbf",
+                    "on-primary": "#ffffff",
+                    "on-primary-fixed-variant": "#2a6038",
+                    "on-tertiary": "#ffffff",
+                    "tertiary-fixed-dim": "#dcc48e",
+                    "tertiary-fixed": "#f8e0a8",
+                    "on-secondary": "#ffffff",
+                    "outline-variant": "#c4c8bc",
+                    "inverse-on-surface": "#f5f0e8",
+                    "surface-container-high": "#eae6de",
+                    "on-secondary-fixed": "#1e1a13",
+                    "background": "#faf6f0",
+                    "on-secondary-container": "#5e5548",
+                    "error-container": "#ffdad8",
+                    "primary": "#4a7c59",
+                    "outline": "#74796e",
+                    "on-surface-variant": "#4a4e4a",
+                    "surface-container-highest": "#e4e0d8",
+                    "on-secondary-fixed-variant": "#4a4538",
+                    "secondary-fixed": "#f0e8db",
+                    "secondary-container": "#f0e8db",
+                    "on-error": "#ffffff",
+                    "on-surface": "#2e3230",
+                    "on-tertiary-fixed-variant": "#554020",
+                    "on-primary-fixed": "#002110",
+                    "secondary": "#6b6358",
+                    "on-primary-container": "#d8f0de",
+                    "surface": "#faf6f0",
+                    "primary-container": "#78a886",
+                    "surface-container-low": "#f5f1ea",
+                    "tertiary-container": "#c4a66a",
+                    "tertiary": "#705c30",
+                    "surface-tint": "#4a7c59",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-fixed": "#221a05",
+                    "surface-bright": "#faf6f0",
+                    "on-tertiary-container": "#554020",
+                    "on-error-container": "#690005",
+                    "primary-fixed-dim": "#8ecf9e",
+                    "on-background": "#2e3230"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.5rem",
+                    "lg": "1rem",
+                    "xl": "1.5rem",
+                    "full": "9999px"
+            },
+            "spacing": {},
+            "fontFamily": {
+                    "headline": [
+                            "Literata"
+                    ],
+                    "display": [
+                            "Literata"
+                    ],
+                    "body": [
+                            "Nunito Sans"
+                    ],
+                    "label": [
+                            "Nunito Sans"
+                    ]
+            },
+            "fontSize": {}
+    },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Nunito Sans', sans-serif;
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+        }
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Literata', serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="h-full flex antialiased bg-background text-on-background">
+<!-- Nav shell is suppressed for this transactional "Create Channel" screen to focus on the canvas -->
+<main class="flex-1 flex flex-col h-full w-full max-w-3xl mx-auto px-6 py-12">
+<!-- Top bar for sub-page -->
+<header class="flex items-center justify-between pb-8 mb-8 border-b border-outline-variant/30">
+<div class="flex items-center gap-4">
+<a class="text-on-surface-variant hover:text-primary transition-colors flex items-center justify-center p-2 rounded-full hover:bg-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</a>
+<h1 class="font-headline text-3xl font-bold text-on-surface">Create a channel</h1>
+</div>
+<div class="text-sm text-on-surface-variant font-label">
+                Terra Corp Workspace
+            </div>
+</header>
+<!-- Form Content -->
+<div class="flex-1 bg-surface rounded-xl shadow-[0_4px_20px_rgba(46,50,48,0.06)] border border-outline-variant/20 overflow-hidden">
+<div class="p-8 md:p-12">
+<p class="text-on-surface-variant mb-8 text-lg leading-relaxed max-w-xl">
+                    Channels are where your team communicates. They're best when organized around a topic — #marketing, for example.
+                </p>
+<form class="space-y-8">
+<!-- Channel Name Input -->
+<div>
+<label class="block text-sm font-bold text-on-surface mb-2 font-headline" for="channel-name">Name</label>
+<div class="relative">
+<span class="absolute inset-y-0 left-0 pl-4 flex items-center text-on-surface-variant pointer-events-none">
+<span class="material-symbols-outlined text-lg" data-icon="tag">tag</span>
+</span>
+<input class="block w-full pl-11 pr-4 py-3 bg-surface border border-outline-variant rounded-lg text-on-surface placeholder-on-surface-variant/50 focus:ring-2 focus:ring-primary focus:border-primary transition-all sm:text-base outline-none" id="channel-name" name="channel-name" placeholder="e.g. plan-budget" type="text"/>
+</div>
+<p class="mt-2 text-sm text-on-surface-variant">Names must be lowercase, without spaces or periods, and can't exceed 80 characters.</p>
+</div>
+<!-- Description Input -->
+<div>
+<label class="block text-sm font-bold text-on-surface mb-2 font-headline" for="channel-desc">
+                            Description <span class="text-on-surface-variant font-normal">(optional)</span>
+</label>
+<input class="block w-full px-4 py-3 bg-surface border border-outline-variant rounded-lg text-on-surface focus:ring-2 focus:ring-primary focus:border-primary transition-all sm:text-base outline-none" id="channel-desc" name="channel-desc" type="text"/>
+<p class="mt-2 text-sm text-on-surface-variant">What's this channel about?</p>
+</div>
+<!-- Visibility Toggle -->
+<div>
+<label class="block text-sm font-bold text-on-surface mb-4 font-headline">Visibility</label>
+<div class="space-y-4">
+<!-- Public Option -->
+<label class="flex items-start p-4 border border-outline-variant rounded-xl cursor-pointer hover:bg-surface-container-low transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-fixed/20">
+<div class="flex items-center h-6">
+<input checked="" class="w-5 h-5 text-primary bg-surface border-outline-variant focus:ring-primary focus:ring-offset-surface" name="visibility" type="radio" value="public"/>
+</div>
+<div class="ml-4 flex-1">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="public">public</span>
+<span class="font-bold text-on-surface block">Public</span>
+</div>
+<span class="text-on-surface-variant text-sm block mt-1">Anyone in Terra Corp can find and join this channel.</span>
+</div>
+</label>
+<!-- Private Option -->
+<label class="flex items-start p-4 border border-outline-variant rounded-xl cursor-pointer hover:bg-surface-container-low transition-colors has-[:checked]:border-primary has-[:checked]:bg-primary-fixed/20">
+<div class="flex items-center h-6">
+<input class="w-5 h-5 text-primary bg-surface border-outline-variant focus:ring-primary focus:ring-offset-surface" name="visibility" type="radio" value="private"/>
+</div>
+<div class="ml-4 flex-1">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="lock">lock</span>
+<span class="font-bold text-on-surface block">Private</span>
+</div>
+<span class="text-on-surface-variant text-sm block mt-1">Only invited members can view or join this channel.</span>
+</div>
+</label>
+</div>
+</div>
+<!-- Actions -->
+<div class="pt-6 flex items-center justify-end gap-4 border-t border-outline-variant/30 mt-8">
+<button class="px-6 py-3 rounded-xl font-bold text-primary hover:bg-surface-variant transition-colors border border-transparent" type="button">
+                            Cancel
+                        </button>
+<button class="px-6 py-3 rounded-xl font-bold bg-primary text-on-primary hover:bg-on-primary-fixed-variant transition-colors shadow-sm flex items-center gap-2" type="submit">
+                            Create channel
+                        </button>
+</div>
+</form>
+</div>
+</div>
+</main>
+</body></html>

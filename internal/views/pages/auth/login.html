@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Entrar - Messenger</title>
+<!-- Google Fonts: Literata (Headlines) & Nunito Sans (Body/Labels) -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400..700&amp;family=Nunito+Sans:opsz,wght@6..12,400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config injected from Design System -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#e4e0d8",
+                    "primary-fixed": "#c8e8d0",
+                    "inverse-primary": "#8ecf9e",
+                    "surface-container": "#f0ece4",
+                    "error": "#b83230",
+                    "surface-dim": "#dbd7cf",
+                    "inverse-surface": "#2e3230",
+                    "secondary-fixed-dim": "#d4ccbf",
+                    "on-primary": "#ffffff",
+                    "on-primary-fixed-variant": "#2a6038",
+                    "on-tertiary": "#ffffff",
+                    "tertiary-fixed-dim": "#dcc48e",
+                    "tertiary-fixed": "#f8e0a8",
+                    "on-secondary": "#ffffff",
+                    "outline-variant": "#c4c8bc",
+                    "inverse-on-surface": "#f5f0e8",
+                    "surface-container-high": "#eae6de",
+                    "on-secondary-fixed": "#1e1a13",
+                    "background": "#faf6f0",
+                    "on-secondary-container": "#5e5548",
+                    "error-container": "#ffdad8",
+                    "primary": "#4a7c59",
+                    "outline": "#74796e",
+                    "on-surface-variant": "#4a4e4a",
+                    "surface-container-highest": "#e4e0d8",
+                    "on-secondary-fixed-variant": "#4a4538",
+                    "secondary-fixed": "#f0e8db",
+                    "secondary-container": "#f0e8db",
+                    "on-error": "#ffffff",
+                    "on-surface": "#2e3230",
+                    "on-tertiary-fixed-variant": "#554020",
+                    "on-primary-fixed": "#002110",
+                    "secondary": "#6b6358",
+                    "on-primary-container": "#d8f0de",
+                    "surface": "#faf6f0",
+                    "primary-container": "#78a886",
+                    "surface-container-low": "#f5f1ea",
+                    "tertiary-container": "#c4a66a",
+                    "tertiary": "#705c30",
+                    "surface-tint": "#4a7c59",
+                    "surface-container-lowest": "#ffffff",
+                    "on-tertiary-fixed": "#221a05",
+                    "surface-bright": "#faf6f0",
+                    "on-tertiary-container": "#554020",
+                    "on-error-container": "#690005",
+                    "primary-fixed-dim": "#8ecf9e",
+                    "on-background": "#2e3230"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.5rem",
+                    "lg": "1rem",
+                    "xl": "1.5rem",
+                    "full": "9999px"
+            },
+            "spacing": {},
+            "fontFamily": {
+                    "headline": [
+                            "Literata"
+                    ],
+                    "display": [
+                            "Literata"
+                    ],
+                    "body": [
+                            "Nunito Sans"
+                    ],
+                    "label": [
+                            "Nunito Sans"
+                    ]
+            },
+            "fontSize": {}
+    },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Nunito Sans', sans-serif;
+            background-color: #faf6f0; /* bg-background fallback */
+            color: #2e3230; /* text-on-background fallback */
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Literata', serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom soft shadow for Messenger aesthetic */
+        .shadow-soft {
+            box-shadow: 0 4px 20px rgba(46, 50, 48, 0.04);
+        }
+    </style>
+</head>
+<body class="bg-background min-h-screen flex items-center justify-center p-4 selection:bg-primary-fixed selection:text-on-primary-fixed">
+<!-- Main Container -->
+<main class="w-full max-w-md bg-surface rounded-[1.5rem] shadow-soft p-8 sm:p-10 border border-outline-variant/20 flex flex-col relative overflow-hidden">
+<!-- Decorative subtle element - organic shape top corner -->
+<div class="absolute -top-16 -right-16 w-32 h-32 bg-primary-fixed/20 rounded-full blur-2xl pointer-events-none"></div>
+<!-- Header -->
+<div class="mb-10 text-center relative z-10">
+<h1 class="font-headline text-4xl font-bold text-primary mb-2 tracking-tight">Messenger</h1>
+<!-- No explanatory text as requested, keeping it minimal -->
+</div>
+<!-- Login Form -->
+<form action="#" class="flex flex-col gap-6 relative z-10" method="POST">
+<!-- Email / Username Field -->
+<div class="flex flex-col gap-1.5">
+<label class="font-label text-sm font-medium text-on-surface-variant ml-1" for="identifier">
+                    Email ou Username
+                </label>
+<div class="relative">
+<input class="w-full bg-surface-container-low text-on-surface font-body text-base px-4 py-3.5 rounded-xl border-none focus:ring-2 focus:ring-primary/40 focus:bg-surface-container transition-all outline-none" id="identifier" name="identifier" placeholder="" required="" type="text"/>
+</div>
+</div>
+<!-- Password Field -->
+<div class="flex flex-col gap-1.5">
+<label class="font-label text-sm font-medium text-on-surface-variant ml-1 flex justify-between" for="password">
+<span>Senha</span>
+</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low text-on-surface font-body text-base px-4 py-3.5 rounded-xl border-none focus:ring-2 focus:ring-primary/40 focus:bg-surface-container transition-all outline-none" id="password" name="password" placeholder="" required="" type="password"/>
+</div>
+</div>
+<!-- Submit Button -->
+<div class="pt-2">
+<button class="w-full bg-primary hover:bg-primary/90 text-on-primary font-label font-bold text-lg py-4 rounded-xl transition-all duration-200 shadow-sm active:scale-[0.98] flex items-center justify-center gap-2" type="submit">
+                    Entrar
+                </button>
+</div>
+</form>
+<!-- Footer Links -->
+<div class="mt-8 text-center relative z-10">
+<a class="font-label text-base font-medium text-primary hover:text-primary-container transition-colors inline-block pb-1 border-b border-transparent hover:border-primary-container" href="#">
+                Criar conta
+            </a>
+</div>
+</main>
+</body></html>
