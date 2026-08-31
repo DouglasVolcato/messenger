@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +21,22 @@ func main() {
 	if err := gotenv.Load(); err != nil {
 		panic(err)
 	}
+
+	if os.Getenv("JWT_SECRET") == "" {
+		if os.Getenv("ENV") == "production" {
+			log.Fatal("[config] JWT_SECRET is required in production")
+		}
+
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			log.Fatalf("[config] could not generate development JWT_SECRET: %v", err)
+		}
+		if err := os.Setenv("JWT_SECRET", hex.EncodeToString(secret)); err != nil {
+			log.Fatalf("[config] could not configure development JWT_SECRET: %v", err)
+		}
+		log.Print("[config] WARNING: JWT_SECRET is not set; generated an ephemeral development secret. Sessions will be invalidated when the application restarts. Add JWT_SECRET to .env to keep sessions stable.")
+	}
+
 	if err := db.InitDB(); err != nil {
 		panic(err)
 	}

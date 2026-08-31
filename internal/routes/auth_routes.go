@@ -3,6 +3,7 @@ package routes
 import (
 	"database/sql"
 	"html/template"
+	"log"
 	"net/http"
 	"strings"
 
@@ -22,6 +23,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 
 	mux.Handle("POST /api/auth/login", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
+			log.Printf("[auth] login form parsing failed error=%v", err)
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
@@ -33,7 +35,18 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			user = models.User{Username: identifier}
 			err = user.GetOneByUsername(db.DB, r.Context())
 		}
-		if err != nil || user.Status != "ACTIVE" || !utils.ComparePassword(user.PasswordHash, r.FormValue("password")) {
+		if err != nil {
+			if err != sql.ErrNoRows {
+				log.Printf("[auth] login user lookup failed identifier=%q error=%v", identifier, err)
+			}
+			utils.ExecuteTemplate(w, templ, "auth/login.html", &ViewData{
+				AppVersion: appVersion,
+				Error:      "Invalid email, username or password.",
+				Identifier: identifier,
+			})
+			return
+		}
+		if user.Status != "ACTIVE" || !utils.ComparePassword(user.PasswordHash, r.FormValue("password")) {
 			utils.ExecuteTemplate(w, templ, "auth/login.html", &ViewData{
 				AppVersion: appVersion,
 				Error:      "Invalid email, username or password.",
@@ -43,6 +56,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 		}
 
 		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID, SystemAdmin: user.SystemAdmin}); err != nil {
+			log.Printf("[auth] login authenticated but session could not be created user_id=%s error=%v", user.ID, err)
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}
@@ -59,6 +73,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 
 	mux.Handle("POST /api/auth/register", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
+			log.Printf("[auth] registration form parsing failed error=%v", err)
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
@@ -82,6 +97,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
+			log.Printf("[auth] registration transaction start failed email=%q error=%v", data.Email, err)
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
 			return
 		}
@@ -93,16 +109,19 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 		}
 		if err := user.Create(tx, r.Context()); err != nil {
 			_ = db.RollbackTransaction(tx)
+			log.Printf("[auth] registration user creation failed email=%q username=%q error=%v", data.Email, data.Username, err)
 			data.Error = "Username or email already in use."
 			utils.ExecuteTemplate(w, templ, "auth/register.html", data)
 			return
 		}
 		if err := db.CommitTransaction(tx); err != nil {
+			log.Printf("[auth] registration transaction commit failed user_id=%s error=%v", user.ID, err)
 			http.Error(w, "could not create account", http.StatusInternalServerError)
 			return
 		}
 
 		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID}); err != nil {
+			log.Printf("[auth] registration completed but session could not be created user_id=%s error=%v", user.ID, err)
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}

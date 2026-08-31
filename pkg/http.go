@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -24,6 +25,7 @@ func SendErrorMessage(w http.ResponseWriter, message string, statusCode int) {
 func ExecuteTemplate(w http.ResponseWriter, templ *template.Template, name string, data interface{}) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templ.ExecuteTemplate(w, name, data); err != nil {
+		log.Printf("[http] template execution failed template=%q error=%v", name, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -41,7 +43,8 @@ func Redirect(w http.ResponseWriter, r *http.Request, path string) {
 func SetUserCookie(w http.ResponseWriter, r *http.Request, u UserInput) error {
 	token, err := GenerateJWT(u)
 	if err != nil {
-		return err
+		log.Printf("[auth] session creation failed method=%s path=%s user_id=%s error=%v", r.Method, r.URL.Path, u.ID, err)
+		return fmt.Errorf("generate JWT: %w", err)
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "user",
@@ -72,7 +75,16 @@ func ClearUserCookie(w http.ResponseWriter, r *http.Request) {
 func GetUserFromCookie(r *http.Request) (*UserInput, error) {
 	cookie, err := r.Cookie("user")
 	if err != nil {
+		if err != http.ErrNoCookie {
+			log.Printf("[auth] session cookie read failed method=%s path=%s error=%v", r.Method, r.URL.Path, err)
+		}
 		return nil, err
 	}
-	return ValidateJWT(cookie.Value)
+
+	user, err := ValidateJWT(cookie.Value)
+	if err != nil {
+		log.Printf("[auth] session validation failed method=%s path=%s error=%v", r.Method, r.URL.Path, err)
+		return nil, err
+	}
+	return user, nil
 }
