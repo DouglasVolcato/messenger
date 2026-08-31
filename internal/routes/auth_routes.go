@@ -42,7 +42,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			return
 		}
 
-		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID}); err != nil {
+		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID, SystemAdmin: user.SystemAdmin}); err != nil {
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}

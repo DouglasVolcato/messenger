@@ -30,6 +30,10 @@ type ViewData struct {
 	Messages      []MessageView
 	CurrentChat   ChatView
 
+	AdminCompanies []AdminCompanyView
+	AdminUsers     []AdminUserView
+	UserCompanies  []AdminUserCompanyView
+
 	Page     int
 	PrevPage int
 	NextPage int
@@ -38,10 +42,12 @@ type ViewData struct {
 	HasPrev  bool
 	HasNext  bool
 
-	Identifier string
-	Name       string
-	Username   string
-	Email      string
+	Identifier   string
+	Name         string
+	Username     string
+	Email        string
+	Query        string
+	StatusFilter string
 }
 
 type WorkspaceView struct {
@@ -93,6 +99,31 @@ type MemberView struct {
 	Status   string
 }
 
+type AdminCompanyView struct {
+	ID        string
+	Name      string
+	Status    string
+	UserCount int64
+	CreatedAt time.Time
+}
+
+type AdminUserView struct {
+	ID           string
+	Name         string
+	Username     string
+	Email        string
+	Status       string
+	SystemAdmin  bool
+	CompanyCount int64
+	CreatedAt    time.Time
+}
+
+type AdminUserCompanyView struct {
+	CompanyID   string
+	CompanyName string
+	Role        string
+}
+
 func RegisterRoutes(mux *http.ServeMux, templ *template.Template, appVersion string) {
 	RegisterPublicRoutes(mux, templ, appVersion)
 	RegisterAuthRoutes(mux, templ, appVersion)
@@ -102,4 +133,5 @@ func RegisterRoutes(mux *http.ServeMux, templ *template.Template, appVersion str
 	RegisterNotificationRoutes(mux, templ, appVersion)
 	RegisterSettingsRoutes(mux, templ, appVersion)
 	RegisterMessageRoutes(mux, templ, appVersion)
+	RegisterAdminRoutes(mux, templ, appVersion)
 }
