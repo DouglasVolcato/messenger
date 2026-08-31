@@ -9,17 +9,16 @@ import (
 
 func RegisterPublicRoutes(mux *http.ServeMux, templ *template.Template, appVersion string) {
 	mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		utils.ExecuteTemplate(w, templ, "index.html", &ViewData{AppVersion: appVersion})
+		if _, err := utils.GetUserFromCookie(r); err == nil {
+			utils.Redirect(w, r, "/workspaces")
+			return
+		}
+		utils.Redirect(w, r, "/login")
 	}))
 
 	mux.Handle("GET /health", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	}))
-
-	mux.Handle("GET /logout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		utils.ClearUserCookie(w, r)
-		utils.Redirect(w, r, "/")
+		_, _ = w.Write([]byte("OK"))
 	}))
 
 	fileServer := http.FileServer(http.Dir("static/"))

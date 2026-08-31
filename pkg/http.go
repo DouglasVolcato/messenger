@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func SendErrorMessage(w http.ResponseWriter, message string, statusCode int) {
@@ -22,10 +23,8 @@ func SendErrorMessage(w http.ResponseWriter, message string, statusCode int) {
 
 func ExecuteTemplate(w http.ResponseWriter, templ *template.Template, name string, data interface{}) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	err := templ.ExecuteTemplate(w, name, data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
+	if err := templ.ExecuteTemplate(w, name, data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -40,16 +39,19 @@ func Redirect(w http.ResponseWriter, r *http.Request, path string) {
 }
 
 func SetUserCookie(w http.ResponseWriter, r *http.Request, u UserInput) error {
-	jwt, err := GenerateJWT(u)
+	token, err := GenerateJWT(u)
 	if err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "user",
-		Value:    jwt,
+		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   os.Getenv("ENV") == "production",
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Now().Add(24 * time.Hour),
+		MaxAge:   86400,
 	})
 	return nil
 }
@@ -61,6 +63,9 @@ func ClearUserCookie(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   os.Getenv("ENV") == "production",
+		SameSite: http.SameSiteLaxMode,
+		Expires:  time.Unix(1, 0),
+		MaxAge:   -1,
 	})
 }
 
@@ -69,9 +74,5 @@ func GetUserFromCookie(r *http.Request) (*UserInput, error) {
 	if err != nil {
 		return nil, err
 	}
-	user, err := ValidateJWT(cookie.Value)
-	if err != nil {
-		return nil, err
-	}
-	return user, nil
+	return ValidateJWT(cookie.Value)
 }

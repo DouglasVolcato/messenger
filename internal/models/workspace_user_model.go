@@ -58,6 +58,14 @@ func (wu *WorkspaceUser) GetOne(db *sql.DB, ctx context.Context) error {
 	).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
 }
 
+func (wu *WorkspaceUser) GetOneByWorkspaceAndUser(db *sql.DB, ctx context.Context) error {
+	return db.QueryRowContext(ctx, `
+		SELECT id, workspace_id, user_id, role, status, created_at, updated_at
+		FROM workspace_users
+		WHERE workspace_id = $1 AND user_id = $2`, wu.WorkspaceID, wu.UserID,
+	).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
+}
+
 func (wu *WorkspaceUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]WorkspaceUser, int64, error) {
 	if page < 1 {
 		page = 1

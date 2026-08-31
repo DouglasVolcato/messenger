@@ -54,6 +54,14 @@ func (cu *ChannelUser) GetOne(db *sql.DB, ctx context.Context) error {
 	).Scan(&cu.ID, &cu.ChannelID, &cu.UserID, &cu.Role, &cu.CreatedAt, &cu.UpdatedAt)
 }
 
+func (cu *ChannelUser) GetOneByChannelAndUser(db *sql.DB, ctx context.Context) error {
+	return db.QueryRowContext(ctx, `
+		SELECT id, channel_id, user_id, role, created_at, updated_at
+		FROM channel_users
+		WHERE channel_id = $1 AND user_id = $2`, cu.ChannelID, cu.UserID,
+	).Scan(&cu.ID, &cu.ChannelID, &cu.UserID, &cu.Role, &cu.CreatedAt, &cu.UpdatedAt)
+}
+
 func (cu *ChannelUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]ChannelUser, int64, error) {
 	if page < 1 {
 		page = 1

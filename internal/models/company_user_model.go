@@ -54,6 +54,14 @@ func (cu *CompanyUser) GetOne(db *sql.DB, ctx context.Context) error {
 	).Scan(&cu.ID, &cu.CompanyID, &cu.UserID, &cu.Role, &cu.CreatedAt, &cu.UpdatedAt)
 }
 
+func (cu *CompanyUser) GetOneByCompanyAndUser(db *sql.DB, ctx context.Context) error {
+	return db.QueryRowContext(ctx, `
+		SELECT id, company_id, user_id, role, created_at, updated_at
+		FROM company_users
+		WHERE company_id = $1 AND user_id = $2`, cu.CompanyID, cu.UserID,
+	).Scan(&cu.ID, &cu.CompanyID, &cu.UserID, &cu.Role, &cu.CreatedAt, &cu.UpdatedAt)
+}
+
 func (cu *CompanyUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]CompanyUser, int64, error) {
 	if page < 1 {
 		page = 1
