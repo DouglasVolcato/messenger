@@ -14,27 +14,39 @@ type UserInput struct {
 	WorkspaceID string `json:"workspace_id"`
 	CompanyID   string `json:"company_id"`
 	CompanyRole string `json:"company_role"`
+	SystemAdmin bool   `json:"system_admin"`
 }
 
 func GenerateJWT(user UserInput) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return "", errors.New("JWT_SECRET is required")
+	}
+
 	claims := jwt.MapClaims{
 		"user_id":      user.ID,
 		"role":         user.Role,
 		"workspace_id": user.WorkspaceID,
 		"company_id":   user.CompanyID,
 		"company_role": user.CompanyRole,
+		"system_admin": user.SystemAdmin,
 		"exp":          time.Now().Add(24 * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+	return token.SignedString([]byte(secret))
 }
 
 func ValidateJWT(tokenString string) (*UserInput, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return nil, errors.New("JWT_SECRET is required")
+	}
+
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if token.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("unexpected signing method")
 		}
-		return []byte(os.Getenv("JWT_SECRET")), nil
+		return []byte(secret), nil
 	})
 	if err != nil || !token.Valid {
 		return nil, errors.New("invalid token")
@@ -61,6 +73,9 @@ func ValidateJWT(tokenString string) (*UserInput, error) {
 	}
 	if value, ok := claims["company_role"].(string); ok {
 		user.CompanyRole = value
+	}
+	if value, ok := claims["system_admin"].(bool); ok {
+		user.SystemAdmin = value
 	}
 	return user, nil
 }
