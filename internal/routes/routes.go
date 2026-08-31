@@ -21,14 +21,15 @@ type ViewData struct {
 	CompanyRole string
 	CanManage   bool
 
-	Workspaces    []WorkspaceView
-	Channels      []ChannelView
-	Members       []MemberView
-	Member        MemberView
-	Notifications []models.UserNotification
-	Chats         []ChatView
-	Messages      []MessageView
-	CurrentChat   ChatView
+	Workspaces        []WorkspaceView
+	CompanyWorkspaces []CompanyWorkspaceView
+	Channels          []ChannelView
+	Members           []MemberView
+	Member            MemberView
+	Notifications     []models.UserNotification
+	Chats             []ChatView
+	Messages          []MessageView
+	CurrentChat       ChatView
 
 	AdminCompanies []AdminCompanyView
 	AdminUsers     []AdminUserView
@@ -48,6 +49,15 @@ type ViewData struct {
 	Email        string
 	Query        string
 	StatusFilter string
+}
+
+type CompanyWorkspaceView struct {
+	ID         string
+	Name       string
+	Status     string
+	Role       string
+	CanManage  bool
+	Workspaces []WorkspaceView
 }
 
 type WorkspaceView struct {

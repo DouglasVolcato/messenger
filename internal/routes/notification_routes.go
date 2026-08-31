@@ -12,8 +12,14 @@ import (
 
 func RegisterNotificationRoutes(mux *http.ServeMux, templ *template.Template, appVersion string) {
 	mux.Handle("GET /notifications", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, err := utils.GetUserFromCookie(r)
+		session, err := utils.GetUserFromCookie(r)
 		if err != nil {
+			utils.Redirect(w, r, "/login")
+			return
+		}
+		user := models.User{ID: session.ID}
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
+			utils.ClearUserCookie(w, r)
 			utils.Redirect(w, r, "/login")
 			return
 		}
@@ -42,15 +48,21 @@ func RegisterNotificationRoutes(mux *http.ServeMux, templ *template.Template, ap
 	}))
 
 	mux.Handle("POST /api/notifications/read-all", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, err := utils.GetUserFromCookie(r)
+		session, err := utils.GetUserFromCookie(r)
 		if err != nil {
 			utils.Redirect(w, r, "/login")
 			return
 		}
+		user := models.User{ID: session.ID}
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
+			utils.ClearUserCookie(w, r)
+			utils.Redirect(w, r, "/login")
+			return
+		}
 		if _, err := db.DB.ExecContext(r.Context(), `
-            UPDATE user_notifications
-            SET is_read = TRUE, read_at = COALESCE(read_at, NOW())
-            WHERE user_id = $1 AND is_read = FALSE`, user.ID); err != nil {
+			UPDATE user_notifications
+			SET is_read = TRUE, read_at = COALESCE(read_at, NOW())
+			WHERE user_id = $1 AND is_read = FALSE`, user.ID); err != nil {
 			http.Error(w, "could not update notifications", http.StatusInternalServerError)
 			return
 		}
@@ -58,15 +70,21 @@ func RegisterNotificationRoutes(mux *http.ServeMux, templ *template.Template, ap
 	}))
 
 	mux.Handle("POST /api/notifications/{notificationID}/read", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, err := utils.GetUserFromCookie(r)
+		session, err := utils.GetUserFromCookie(r)
 		if err != nil {
 			utils.Redirect(w, r, "/login")
 			return
 		}
+		user := models.User{ID: session.ID}
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
+			utils.ClearUserCookie(w, r)
+			utils.Redirect(w, r, "/login")
+			return
+		}
 		result, err := db.DB.ExecContext(r.Context(), `
-            UPDATE user_notifications
-            SET is_read = TRUE, read_at = COALESCE(read_at, NOW())
-            WHERE id = $1 AND user_id = $2`, r.PathValue("notificationID"), user.ID)
+			UPDATE user_notifications
+			SET is_read = TRUE, read_at = COALESCE(read_at, NOW())
+			WHERE id = $1 AND user_id = $2`, r.PathValue("notificationID"), user.ID)
 		if err != nil {
 			http.Error(w, "could not update notification", http.StatusInternalServerError)
 			return
