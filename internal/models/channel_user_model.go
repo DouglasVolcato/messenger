@@ -53,3 +53,39 @@ func (cu *ChannelUser) GetOne(db *sql.DB, ctx context.Context) error {
 		FROM channel_users WHERE id = $1`, cu.ID,
 	).Scan(&cu.ID, &cu.ChannelID, &cu.UserID, &cu.Role, &cu.CreatedAt, &cu.UpdatedAt)
 }
+
+func (cu *ChannelUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]ChannelUser, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, channel_id, user_id, role, created_at, updated_at, COUNT(*) OVER() AS total
+		FROM channel_users
+		WHERE channel_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3`, cu.ChannelID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]ChannelUser, 0)
+	var total int64
+	for rows.Next() {
+		var item ChannelUser
+		if err := rows.Scan(&item.ID, &item.ChannelID, &item.UserID, &item.Role, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}

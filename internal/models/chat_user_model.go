@@ -54,3 +54,43 @@ func (cu *ChatUser) GetOne(db *sql.DB, ctx context.Context) error {
 		FROM chat_users WHERE id = $1`, cu.ID,
 	).Scan(&cu.ID, &cu.ChatID, &cu.UserID, &cu.LastReadMessageID, &cu.JoinedAt, &cu.LeftAt, &cu.CreatedAt, &cu.UpdatedAt)
 }
+
+func (cu *ChatUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]ChatUser, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, chat_id, user_id, last_read_message_id, joined_at, left_at, created_at, updated_at,
+		       COUNT(*) OVER() AS total
+		FROM chat_users
+		WHERE chat_id = $1
+		ORDER BY joined_at DESC, id DESC
+		LIMIT $2 OFFSET $3`, cu.ChatID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]ChatUser, 0)
+	var total int64
+	for rows.Next() {
+		var item ChatUser
+		if err := rows.Scan(
+			&item.ID, &item.ChatID, &item.UserID, &item.LastReadMessageID, &item.JoinedAt,
+			&item.LeftAt, &item.CreatedAt, &item.UpdatedAt, &total,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}

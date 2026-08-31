@@ -107,3 +107,42 @@ func (u *User) GetOneByUsername(db *sql.DB, ctx context.Context) error {
 		u.Username,
 	).Scan(&u.ID, &u.Name, &u.Username, &u.Email, &u.PasswordHash, &u.Status, &u.CreatedAt, &u.UpdatedAt)
 }
+
+func (u *User) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]User, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, name, username, email, password_hash, status, created_at, updated_at,
+		       COUNT(*) OVER() AS total
+		FROM users
+		ORDER BY created_at DESC, id DESC
+		LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	users := make([]User, 0)
+	var total int64
+	for rows.Next() {
+		var item User
+		if err := rows.Scan(
+			&item.ID, &item.Name, &item.Username, &item.Email, &item.PasswordHash,
+			&item.Status, &item.CreatedAt, &item.UpdatedAt, &total,
+		); err != nil {
+			return nil, 0, err
+		}
+		users = append(users, item)
+	}
+
+	return users, total, rows.Err()
+}

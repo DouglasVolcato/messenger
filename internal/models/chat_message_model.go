@@ -97,3 +97,44 @@ func (m *ChatMessage) GetOneByClientMessageID(db *sql.DB, ctx context.Context) e
 		&m.EditedAt, &m.DeletedAt, &m.CreatedAt, &m.UpdatedAt,
 	)
 }
+
+func (m *ChatMessage) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]ChatMessage, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, chat_id, user_id, client_message_id, sequence, type, content,
+		       edited_at, deleted_at, created_at, updated_at, COUNT(*) OVER() AS total
+		FROM chat_messages
+		WHERE chat_id = $1
+		ORDER BY sequence DESC
+		LIMIT $2 OFFSET $3`, m.ChatID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]ChatMessage, 0)
+	var total int64
+	for rows.Next() {
+		var item ChatMessage
+		if err := rows.Scan(
+			&item.ID, &item.ChatID, &item.UserID, &item.ClientMessageID, &item.Sequence,
+			&item.Type, &item.Content, &item.EditedAt, &item.DeletedAt, &item.CreatedAt,
+			&item.UpdatedAt, &total,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}

@@ -53,3 +53,38 @@ func (c *Company) GetOne(db *sql.DB, ctx context.Context) error {
 		FROM companies WHERE id = $1`, c.ID,
 	).Scan(&c.ID, &c.Name, &c.Status, &c.CreatedAt, &c.UpdatedAt)
 }
+
+func (c *Company) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]Company, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, name, status, created_at, updated_at, COUNT(*) OVER() AS total
+		FROM companies
+		ORDER BY created_at DESC, id DESC
+		LIMIT $1 OFFSET $2`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]Company, 0)
+	var total int64
+	for rows.Next() {
+		var item Company
+		if err := rows.Scan(&item.ID, &item.Name, &item.Status, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}

@@ -54,3 +54,39 @@ func (w *Workspace) GetOne(db *sql.DB, ctx context.Context) error {
 		FROM workspaces WHERE id = $1`, w.ID,
 	).Scan(&w.ID, &w.CompanyID, &w.Name, &w.Slug, &w.Status, &w.CreatedAt, &w.UpdatedAt)
 }
+
+func (w *Workspace) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]Workspace, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, company_id, name, slug, status, created_at, updated_at, COUNT(*) OVER() AS total
+		FROM workspaces
+		WHERE company_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3`, w.CompanyID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]Workspace, 0)
+	var total int64
+	for rows.Next() {
+		var item Workspace
+		if err := rows.Scan(&item.ID, &item.CompanyID, &item.Name, &item.Slug, &item.Status, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}

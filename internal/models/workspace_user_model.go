@@ -57,3 +57,39 @@ func (wu *WorkspaceUser) GetOne(db *sql.DB, ctx context.Context) error {
 		FROM workspace_users WHERE id = $1`, wu.ID,
 	).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
 }
+
+func (wu *WorkspaceUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]WorkspaceUser, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, workspace_id, user_id, role, status, created_at, updated_at, COUNT(*) OVER() AS total
+		FROM workspace_users
+		WHERE workspace_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3`, wu.WorkspaceID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]WorkspaceUser, 0)
+	var total int64
+	for rows.Next() {
+		var item WorkspaceUser
+		if err := rows.Scan(&item.ID, &item.WorkspaceID, &item.UserID, &item.Role, &item.Status, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}

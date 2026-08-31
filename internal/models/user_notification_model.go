@@ -55,3 +55,43 @@ func (n *UserNotification) GetOne(db *sql.DB, ctx context.Context) error {
 		FROM user_notifications WHERE id = $1`, n.ID,
 	).Scan(&n.ID, &n.UserID, &n.Type, &n.Title, &n.Content, &n.IsRead, &n.ReadAt, &n.CreatedAt, &n.UpdatedAt)
 }
+
+func (n *UserNotification) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]UserNotification, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, user_id, type, title, content, is_read, read_at, created_at, updated_at,
+		       COUNT(*) OVER() AS total
+		FROM user_notifications
+		WHERE user_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2 OFFSET $3`, n.UserID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := make([]UserNotification, 0)
+	var total int64
+	for rows.Next() {
+		var item UserNotification
+		if err := rows.Scan(
+			&item.ID, &item.UserID, &item.Type, &item.Title, &item.Content, &item.IsRead,
+			&item.ReadAt, &item.CreatedAt, &item.UpdatedAt, &total,
+		); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+
+	return items, total, rows.Err()
+}
