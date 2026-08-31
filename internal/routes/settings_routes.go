@@ -18,15 +18,12 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			return
 		}
 		user := models.User{ID: session.ID}
-		if err := user.GetOne(db.DB, r.Context()); err != nil {
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
 			utils.ClearUserCookie(w, r)
 			utils.Redirect(w, r, "/login")
 			return
 		}
-		utils.ExecuteTemplate(w, templ, "settings/profile.html", &ViewData{
-			AppVersion: appVersion,
-			User:       user,
-		})
+		utils.ExecuteTemplate(w, templ, "settings/profile.html", &ViewData{AppVersion: appVersion, User: user})
 	}))
 
 	mux.Handle("POST /api/settings/profile", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,10 +36,10 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
-
 		user := models.User{ID: session.ID}
-		if err := user.GetOne(db.DB, r.Context()); err != nil {
-			http.NotFound(w, r)
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
+			utils.ClearUserCookie(w, r)
+			utils.Redirect(w, r, "/login")
 			return
 		}
 		user.Name = strings.TrimSpace(r.FormValue("name"))
@@ -52,7 +49,6 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			http.Error(w, "name, username and email are required", http.StatusBadRequest)
 			return
 		}
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
@@ -71,11 +67,18 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 	}))
 
 	mux.Handle("GET /settings/security", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := utils.GetUserFromCookie(r); err != nil {
+		session, err := utils.GetUserFromCookie(r)
+		if err != nil {
 			utils.Redirect(w, r, "/login")
 			return
 		}
-		utils.ExecuteTemplate(w, templ, "settings/security.html", &ViewData{AppVersion: appVersion})
+		user := models.User{ID: session.ID}
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
+			utils.ClearUserCookie(w, r)
+			utils.Redirect(w, r, "/login")
+			return
+		}
+		utils.ExecuteTemplate(w, templ, "settings/security.html", &ViewData{AppVersion: appVersion, User: user})
 	}))
 
 	mux.Handle("POST /api/settings/security", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,10 +95,10 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			http.Error(w, "new passwords do not match", http.StatusBadRequest)
 			return
 		}
-
 		user := models.User{ID: session.ID}
-		if err := user.GetOne(db.DB, r.Context()); err != nil {
-			http.NotFound(w, r)
+		if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
+			utils.ClearUserCookie(w, r)
+			utils.Redirect(w, r, "/login")
 			return
 		}
 		if !utils.ComparePassword(user.PasswordHash, r.FormValue("current_password")) {
@@ -103,7 +106,6 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			return
 		}
 		user.Password = r.FormValue("new_password")
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
