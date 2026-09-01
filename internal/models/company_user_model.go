@@ -27,12 +27,36 @@ func (cu *CompanyUser) Create(tx *sql.Tx, ctx context.Context) error {
 		cu.Role = "MEMBER"
 	}
 
-	return tx.QueryRowContext(ctx, `
+	var existingMembers int
+	_ = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM company_users WHERE company_id = $1`, cu.CompanyID).Scan(&existingMembers)
+
+	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO company_users (id, company_id, user_id, role)
 		VALUES ($1, $2, $3, $4)
 		RETURNING created_at, updated_at`,
 		cu.ID, cu.CompanyID, cu.UserID, cu.Role,
-	).Scan(&cu.CreatedAt, &cu.UpdatedAt)
+	).Scan(&cu.CreatedAt, &cu.UpdatedAt); err != nil {
+		return err
+	}
+
+	if existingMembers > 0 {
+		var companyName string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM companies WHERE id = $1`, cu.CompanyID).Scan(&companyName); err == nil {
+			title := "Company access"
+			actionURL := "/workspaces"
+			notification := UserNotification{
+				UserID:    cu.UserID,
+				Type:      "COMPANY_MEMBERSHIP",
+				Title:     &title,
+				Content:   "You were added to " + companyName + " as " + cu.Role + ".",
+				ActionURL: &actionURL,
+			}
+			if err := notification.Create(tx, ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (cu *CompanyUser) Update(tx *sql.Tx, ctx context.Context) error {
@@ -73,18 +97,14 @@ func (cu *CompanyUser) GetMany(db *sql.DB, ctx context.Context, page, limit int)
 		limit = 100
 	}
 	offset := (page - 1) * limit
-
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, company_id, user_id, role, created_at, updated_at, COUNT(*) OVER() AS total
-		FROM company_users
-		WHERE company_id = $1
-		ORDER BY created_at DESC, id DESC
-		LIMIT $2 OFFSET $3`, cu.CompanyID, limit, offset)
+		FROM company_users WHERE company_id = $1
+		ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`, cu.CompanyID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-
 	items := make([]CompanyUser, 0)
 	var total int64
 	for rows.Next() {
@@ -94,6 +114,5 @@ func (cu *CompanyUser) GetMany(db *sql.DB, ctx context.Context, page, limit int)
 		}
 		items = append(items, item)
 	}
-
 	return items, total, rows.Err()
 }

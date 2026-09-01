@@ -39,12 +39,12 @@ func (m *ChatMessage) Create(tx *sql.Tx, ctx context.Context) error {
 		m.Type = "TEXT"
 	}
 
-	var chatID string
-	if err := tx.QueryRowContext(ctx, "SELECT id FROM chats WHERE id = $1 FOR UPDATE", m.ChatID).Scan(&chatID); err != nil {
+	var chatID, chatType, workspaceID string
+	if err := tx.QueryRowContext(ctx, "SELECT id, type, workspace_id FROM chats WHERE id = $1 FOR UPDATE", m.ChatID).Scan(&chatID, &chatType, &workspaceID); err != nil {
 		return err
 	}
 
-	return tx.QueryRowContext(ctx, `
+	if err := tx.QueryRowContext(ctx, `
 		WITH next_sequence AS (
 			SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
 			FROM chat_messages
@@ -57,7 +57,58 @@ func (m *ChatMessage) Create(tx *sql.Tx, ctx context.Context) error {
 		FROM next_sequence ns
 		RETURNING sequence, created_at, updated_at`,
 		m.ID, m.ChatID, m.UserID, m.ClientMessageID, m.Type, m.Content, m.EditedAt, m.DeletedAt,
-	).Scan(&m.Sequence, &m.CreatedAt, &m.UpdatedAt)
+	).Scan(&m.Sequence, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		return err
+	}
+
+	if (chatType == "DIRECT" || chatType == "GROUP") && m.Type == "TEXT" {
+		var senderName string
+		_ = tx.QueryRowContext(ctx, `SELECT name FROM users WHERE id = $1`, m.UserID).Scan(&senderName)
+		if senderName == "" {
+			senderName = "Someone"
+		}
+
+		rows, err := tx.QueryContext(ctx, `
+			SELECT cu.user_id
+			FROM chat_users cu
+			JOIN workspace_users wu ON wu.workspace_id = $3 AND wu.user_id = cu.user_id AND wu.status = 'ACTIVE'
+			JOIN users u ON u.id = cu.user_id AND u.status = 'ACTIVE'
+			WHERE cu.chat_id = $1 AND cu.user_id <> $2 AND cu.left_at IS NULL`, m.ChatID, m.UserID, workspaceID)
+		if err != nil {
+			return err
+		}
+		recipients := make([]string, 0)
+		for rows.Next() {
+			var userID string
+			if err := rows.Scan(&userID); err != nil {
+				rows.Close()
+				return err
+			}
+			recipients = append(recipients, userID)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+
+		title := "New message"
+		actionURL := "/workspaces/" + workspaceID + "?chat=" + m.ChatID + "#message-" + m.ID
+		for _, userID := range recipients {
+			n := UserNotification{
+				UserID:    userID,
+				Type:      "CHAT_MESSAGE",
+				Title:     &title,
+				Content:   senderName + " sent you a message.",
+				ActionURL: &actionURL,
+			}
+			if err := n.Create(tx, ctx); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (m *ChatMessage) Update(tx *sql.Tx, ctx context.Context) error {

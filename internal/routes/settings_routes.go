@@ -23,7 +23,30 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			utils.Redirect(w, r, "/login")
 			return
 		}
-		utils.ExecuteTemplate(w, templ, "settings/profile.html", &ViewData{AppVersion: appVersion, User: user})
+		backURL := "/workspaces"
+		workspaceContextID := r.URL.Query().Get("workspace")
+		if workspaceContextID != "" {
+			var activeWorkspaceID string
+			if db.DB.QueryRowContext(r.Context(), `
+				SELECT wu.workspace_id
+				FROM workspace_users wu
+				JOIN workspaces w ON w.id = wu.workspace_id
+				JOIN companies c ON c.id = w.company_id
+				WHERE wu.workspace_id = $1 AND wu.user_id = $2
+				  AND wu.status = 'ACTIVE' AND w.status = 'ACTIVE' AND c.status = 'ACTIVE'`, workspaceContextID, session.ID).Scan(&activeWorkspaceID) == nil {
+				workspaceContextID = activeWorkspaceID
+				backURL = "/workspaces/" + activeWorkspaceID
+			} else {
+				workspaceContextID = ""
+			}
+		}
+		utils.ExecuteTemplate(w, templ, "settings/profile.html", &ViewData{
+			AppVersion:         appVersion,
+			User:               user,
+			BackURL:            backURL,
+			WorkspaceContextID: workspaceContextID,
+			Success:            r.URL.Query().Get("success"),
+		})
 	}))
 
 	mux.Handle("POST /api/settings/profile", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +86,11 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			http.Error(w, "could not update profile", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, "/settings/profile")
+		redirectURL := "/settings/profile?success=Profile+updated"
+		if workspaceID := r.FormValue("workspace_id"); workspaceID != "" {
+			redirectURL += "&workspace=" + workspaceID
+		}
+		utils.Redirect(w, r, redirectURL)
 	}))
 
 	mux.Handle("GET /settings/security", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +105,24 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			utils.Redirect(w, r, "/login")
 			return
 		}
-		utils.ExecuteTemplate(w, templ, "settings/security.html", &ViewData{AppVersion: appVersion, User: user})
+		backURL := "/settings/profile"
+		workspaceContextID := r.URL.Query().Get("workspace")
+		if workspaceContextID != "" {
+			var activeWorkspaceID string
+			if db.DB.QueryRowContext(r.Context(), `SELECT workspace_id FROM workspace_users WHERE workspace_id = $1 AND user_id = $2 AND status = 'ACTIVE'`, workspaceContextID, session.ID).Scan(&activeWorkspaceID) == nil {
+				workspaceContextID = activeWorkspaceID
+				backURL += "?workspace=" + activeWorkspaceID
+			} else {
+				workspaceContextID = ""
+			}
+		}
+		utils.ExecuteTemplate(w, templ, "settings/security.html", &ViewData{
+			AppVersion:         appVersion,
+			User:               user,
+			BackURL:            backURL,
+			WorkspaceContextID: workspaceContextID,
+			Success:            r.URL.Query().Get("success"),
+		})
 	}))
 
 	mux.Handle("POST /api/settings/security", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +164,10 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			http.Error(w, "could not update password", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, "/settings/security")
+		redirectURL := "/settings/security?success=Password+updated"
+		if workspaceID := r.FormValue("workspace_id"); workspaceID != "" {
+			redirectURL += "&workspace=" + workspaceID
+		}
+		utils.Redirect(w, r, redirectURL)
 	}))
 }

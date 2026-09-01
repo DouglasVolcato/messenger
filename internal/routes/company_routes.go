@@ -23,15 +23,9 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		var company models.Company
 		var companyRole string
 		err = db.DB.QueryRowContext(r.Context(), `
-			SELECT c.id, c.name, c.status, c.created_at, c.updated_at, cu.role
-			FROM companies c
-			JOIN company_users cu ON cu.company_id = c.id AND cu.user_id = $2
-			JOIN users u ON u.id = $2
-			WHERE c.id = $1
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(
-			&company.ID, &company.Name, &company.Status, &company.CreatedAt, &company.UpdatedAt, &companyRole,
-		)
+			SELECT c.id,c.name,c.status,c.created_at,c.updated_at,cu.role
+			FROM companies c JOIN company_users cu ON cu.company_id=c.id AND cu.user_id=$2 JOIN users u ON u.id=$2
+			WHERE c.id=$1 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&company.ID, &company.Name, &company.Status, &company.CreatedAt, &company.UpdatedAt, &companyRole)
 		if err == sql.ErrNoRows {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
@@ -40,12 +34,18 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not load company", http.StatusInternalServerError)
 			return
 		}
-		utils.ExecuteTemplate(w, templ, "companies/settings.html", &ViewData{
-			AppVersion:  appVersion,
-			Company:     company,
-			CompanyRole: companyRole,
-			CanManage:   true,
-		})
+		backURL := "/workspaces"
+		workspaceContextID := r.URL.Query().Get("workspace")
+		if workspaceContextID != "" {
+			var active string
+			if db.DB.QueryRowContext(r.Context(), `SELECT wu.workspace_id FROM workspace_users wu JOIN workspaces w ON w.id=wu.workspace_id WHERE wu.workspace_id=$1 AND wu.user_id=$2 AND w.company_id=$3 AND wu.status='ACTIVE'`, workspaceContextID, session.ID, companyID).Scan(&active) == nil {
+				workspaceContextID = active
+				backURL = "/workspaces/" + active
+			} else {
+				workspaceContextID = ""
+			}
+		}
+		utils.ExecuteTemplate(w, templ, "companies/settings.html", &ViewData{AppVersion: appVersion, Company: company, CompanyRole: companyRole, CanManage: true, BackURL: backURL, WorkspaceContextID: workspaceContextID, Success: r.URL.Query().Get("success"), Error: r.URL.Query().Get("error")})
 	}))
 
 	mux.Handle("POST /api/companies/{companyID}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,19 +58,13 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
+		workspaceContextID := r.FormValue("workspace_id")
 		companyID := r.PathValue("companyID")
 		var companyRole string
-		if err := db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.role
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(&companyRole); err != nil {
+		if err := db.DB.QueryRowContext(r.Context(), `SELECT cu.role FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&companyRole); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		company := models.Company{ID: companyID}
 		if err := company.GetOne(db.DB, r.Context()); err != nil {
 			http.NotFound(w, r)
@@ -78,10 +72,13 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 		company.Name = strings.TrimSpace(r.FormValue("name"))
 		if company.Name == "" {
-			http.Error(w, "company name is required", http.StatusBadRequest)
+			redirectURL := "/companies/" + companyID + "/settings?error=Company+name+is+required"
+			if workspaceContextID != "" {
+				redirectURL += "&workspace=" + workspaceContextID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
@@ -89,14 +86,22 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 		if err := company.Update(tx, r.Context()); err != nil {
 			_ = db.RollbackTransaction(tx)
-			http.Error(w, "could not update company", http.StatusBadRequest)
+			redirectURL := "/companies/" + companyID + "/settings?error=Could+not+update+company"
+			if workspaceContextID != "" {
+				redirectURL += "&workspace=" + workspaceContextID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
 		if err := db.CommitTransaction(tx); err != nil {
 			http.Error(w, "could not update company", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, "/companies/"+companyID+"/settings")
+		redirectURL := "/companies/" + companyID + "/settings?success=Company+updated"
+		if workspaceContextID != "" {
+			redirectURL += "&workspace=" + workspaceContextID
+		}
+		utils.Redirect(w, r, redirectURL)
 	}))
 
 	mux.Handle("GET /companies/{companyID}/members", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,42 +112,27 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 		companyID := r.PathValue("companyID")
 		var companyRole string
-		if err := db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.role
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(&companyRole); err != nil {
+		if err := db.DB.QueryRowContext(r.Context(), `SELECT cu.role FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&companyRole); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		if page < 1 {
 			page = 1
 		}
 		limit := 50
 		offset := (page - 1) * limit
-
 		company := models.Company{ID: companyID}
 		if err := company.GetOne(db.DB, r.Context()); err != nil {
 			http.NotFound(w, r)
 			return
 		}
-		rows, err := db.DB.QueryContext(r.Context(), `
-			SELECT cu.id, u.id, u.name, u.username, u.email, cu.role, u.status, COUNT(*) OVER()
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1
-			ORDER BY cu.created_at ASC, u.name ASC
-			LIMIT $2 OFFSET $3`, companyID, limit, offset)
+		rows, err := db.DB.QueryContext(r.Context(), `SELECT cu.id,u.id,u.name,u.username,u.email,cu.role,u.status,COUNT(*) OVER() FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 ORDER BY cu.created_at ASC,u.name ASC LIMIT $2 OFFSET $3`, companyID, limit, offset)
 		if err != nil {
 			http.Error(w, "could not load members", http.StatusInternalServerError)
 			return
 		}
 		defer rows.Close()
-
 		members := make([]MemberView, 0)
 		var total int64
 		for rows.Next() {
@@ -153,21 +143,22 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			}
 			members = append(members, member)
 		}
-
-		utils.ExecuteTemplate(w, templ, "companies/members/index.html", &ViewData{
-			AppVersion:  appVersion,
-			Company:     company,
-			CompanyRole: companyRole,
-			CanManage:   true,
-			Members:     members,
-			Page:        page,
-			PrevPage:    page - 1,
-			NextPage:    page + 1,
-			Limit:       limit,
-			Total:       total,
-			HasPrev:     page > 1,
-			HasNext:     int64(page*limit) < total,
-		})
+		if err := rows.Err(); err != nil {
+			http.Error(w, "could not load members", http.StatusInternalServerError)
+			return
+		}
+		backURL := "/workspaces"
+		workspaceContextID := r.URL.Query().Get("workspace")
+		if workspaceContextID != "" {
+			var active string
+			if db.DB.QueryRowContext(r.Context(), `SELECT wu.workspace_id FROM workspace_users wu JOIN workspaces w ON w.id=wu.workspace_id WHERE wu.workspace_id=$1 AND wu.user_id=$2 AND w.company_id=$3 AND wu.status='ACTIVE'`, workspaceContextID, session.ID, companyID).Scan(&active) == nil {
+				workspaceContextID = active
+				backURL = "/workspaces/" + active
+			} else {
+				workspaceContextID = ""
+			}
+		}
+		utils.ExecuteTemplate(w, templ, "companies/members/index.html", &ViewData{AppVersion: appVersion, Company: company, CompanyRole: companyRole, CanManage: true, Members: members, BackURL: backURL, WorkspaceContextID: workspaceContextID, Page: page, PrevPage: page - 1, NextPage: page + 1, Limit: limit, Total: total, HasPrev: page > 1, HasNext: int64(page*limit) < total, Success: r.URL.Query().Get("success"), Error: r.URL.Query().Get("error")})
 	}))
 
 	mux.Handle("POST /api/companies/{companyID}/members", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -180,19 +171,13 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
+		workspaceContextID := r.FormValue("workspace_id")
 		companyID := r.PathValue("companyID")
 		var actorRole string
-		if err := db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.role
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
+		if err := db.DB.QueryRowContext(r.Context(), `SELECT cu.role FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		identifier := strings.TrimSpace(r.FormValue("identifier"))
 		target := models.User{Email: identifier}
 		err = target.GetOneByEmail(db.DB, r.Context())
@@ -201,10 +186,13 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			err = target.GetOneByUsername(db.DB, r.Context())
 		}
 		if err != nil || target.Status != "ACTIVE" {
-			http.Error(w, "active user not found", http.StatusNotFound)
+			redirectURL := "/companies/" + companyID + "/members?error=Active+user+not+found"
+			if workspaceContextID != "" {
+				redirectURL += "&workspace=" + workspaceContextID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
-
 		role := strings.ToUpper(r.FormValue("role"))
 		if role == "" {
 			role = "MEMBER"
@@ -214,10 +202,9 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			return
 		}
 		if actorRole == "ADMIN" && (role == "OWNER" || role == "ADMIN") {
-			http.Error(w, "admins can only add members or guests", http.StatusForbidden)
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
@@ -226,14 +213,22 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		membership := models.CompanyUser{CompanyID: companyID, UserID: target.ID, Role: role}
 		if err := membership.Create(tx, r.Context()); err != nil {
 			_ = db.RollbackTransaction(tx)
-			http.Error(w, "user already belongs to this company", http.StatusBadRequest)
+			redirectURL := "/companies/" + companyID + "/members?error=User+already+belongs+to+this+company"
+			if workspaceContextID != "" {
+				redirectURL += "&workspace=" + workspaceContextID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
 		if err := db.CommitTransaction(tx); err != nil {
 			http.Error(w, "could not add member", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, "/companies/"+companyID+"/members")
+		redirectURL := "/companies/" + companyID + "/members?success=Member+added"
+		if workspaceContextID != "" {
+			redirectURL += "&workspace=" + workspaceContextID
+		}
+		utils.Redirect(w, r, redirectURL)
 	}))
 
 	mux.Handle("GET /companies/{companyID}/members/{userID}/edit", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -244,30 +239,17 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 		companyID := r.PathValue("companyID")
 		var actorRole string
-		if err := db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.role
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
+		if err := db.DB.QueryRowContext(r.Context(), `SELECT cu.role FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		company := models.Company{ID: companyID}
 		if err := company.GetOne(db.DB, r.Context()); err != nil {
 			http.NotFound(w, r)
 			return
 		}
 		var member MemberView
-		err = db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.id, u.id, u.name, u.username, u.email, cu.role, u.status
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2`, companyID, r.PathValue("userID")).Scan(
-			&member.ID, &member.UserID, &member.Name, &member.Username, &member.Email, &member.Role, &member.Status,
-		)
+		err = db.DB.QueryRowContext(r.Context(), `SELECT cu.id,u.id,u.name,u.username,u.email,cu.role,u.status FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2`, companyID, r.PathValue("userID")).Scan(&member.ID, &member.UserID, &member.Name, &member.Username, &member.Email, &member.Role, &member.Status)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -276,14 +258,18 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
-		utils.ExecuteTemplate(w, templ, "companies/members/edit.html", &ViewData{
-			AppVersion:  appVersion,
-			Company:     company,
-			CompanyRole: actorRole,
-			CanManage:   true,
-			Member:      member,
-		})
+		backURL := "/companies/" + companyID + "/members"
+		workspaceContextID := r.URL.Query().Get("workspace")
+		if workspaceContextID != "" {
+			var active string
+			if db.DB.QueryRowContext(r.Context(), `SELECT wu.workspace_id FROM workspace_users wu JOIN workspaces w ON w.id=wu.workspace_id WHERE wu.workspace_id=$1 AND wu.user_id=$2 AND w.company_id=$3 AND wu.status='ACTIVE'`, workspaceContextID, session.ID, companyID).Scan(&active) == nil {
+				workspaceContextID = active
+				backURL += "?workspace=" + active
+			} else {
+				workspaceContextID = ""
+			}
+		}
+		utils.ExecuteTemplate(w, templ, "companies/members/edit.html", &ViewData{AppVersion: appVersion, Company: company, CompanyRole: actorRole, CanManage: true, Member: member, BackURL: backURL, WorkspaceContextID: workspaceContextID, Error: r.URL.Query().Get("error")})
 	}))
 
 	mux.Handle("POST /api/companies/{companyID}/members/{userID}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -296,19 +282,13 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
+		workspaceContextID := r.FormValue("workspace_id")
 		companyID := r.PathValue("companyID")
 		var actorRole string
-		if err := db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.role
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
+		if err := db.DB.QueryRowContext(r.Context(), `SELECT cu.role FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		membership := models.CompanyUser{CompanyID: companyID, UserID: r.PathValue("userID")}
 		if err := membership.GetOneByCompanyAndUser(db.DB, r.Context()); err != nil {
 			http.NotFound(w, r)
@@ -326,7 +306,6 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
@@ -339,9 +318,13 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 		if membership.Role == "OWNER" && role != "OWNER" {
 			var owners int
-			if err := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM company_users WHERE company_id = $1 AND role = 'OWNER'`, companyID).Scan(&owners); err != nil || owners <= 1 {
+			if err := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM company_users WHERE company_id=$1 AND role='OWNER'`, companyID).Scan(&owners); err != nil || owners <= 1 {
 				_ = db.RollbackTransaction(tx)
-				http.Error(w, "the last owner cannot be demoted", http.StatusBadRequest)
+				redirectURL := "/companies/" + companyID + "/members/" + membership.UserID + "/edit?error=The+last+owner+cannot+be+demoted"
+				if workspaceContextID != "" {
+					redirectURL += "&workspace=" + workspaceContextID
+				}
+				utils.Redirect(w, r, redirectURL)
 				return
 			}
 		}
@@ -359,7 +342,11 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			utils.Redirect(w, r, "/workspaces")
 			return
 		}
-		utils.Redirect(w, r, "/companies/"+companyID+"/members")
+		redirectURL := "/companies/" + companyID + "/members?success=Member+updated"
+		if workspaceContextID != "" {
+			redirectURL += "&workspace=" + workspaceContextID
+		}
+		utils.Redirect(w, r, redirectURL)
 	}))
 
 	mux.Handle("POST /api/companies/{companyID}/members/{userID}/remove", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -368,19 +355,17 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			utils.Redirect(w, r, "/login")
 			return
 		}
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form", http.StatusBadRequest)
+			return
+		}
+		workspaceContextID := r.FormValue("workspace_id")
 		companyID := r.PathValue("companyID")
 		var actorRole string
-		if err := db.DB.QueryRowContext(r.Context(), `
-			SELECT cu.role
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1 AND cu.user_id = $2
-			  AND u.status = 'ACTIVE'
-			  AND cu.role IN ('OWNER', 'ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
+		if err := db.DB.QueryRowContext(r.Context(), `SELECT cu.role FROM company_users cu JOIN users u ON u.id=cu.user_id WHERE cu.company_id=$1 AND cu.user_id=$2 AND u.status='ACTIVE' AND cu.role IN ('OWNER','ADMIN')`, companyID, session.ID).Scan(&actorRole); err != nil {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		membership := models.CompanyUser{CompanyID: companyID, UserID: r.PathValue("userID")}
 		if err := membership.GetOneByCompanyAndUser(db.DB, r.Context()); err != nil {
 			http.NotFound(w, r)
@@ -390,7 +375,6 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
@@ -403,40 +387,27 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 		if membership.Role == "OWNER" {
 			var owners int
-			if err := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM company_users WHERE company_id = $1 AND role = 'OWNER'`, companyID).Scan(&owners); err != nil || owners <= 1 {
+			if err := tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM company_users WHERE company_id=$1 AND role='OWNER'`, companyID).Scan(&owners); err != nil || owners <= 1 {
 				_ = db.RollbackTransaction(tx)
-				http.Error(w, "the last owner cannot be removed", http.StatusBadRequest)
+				redirectURL := "/companies/" + companyID + "/members/" + membership.UserID + "/edit?error=The+last+owner+cannot+be+removed"
+				if workspaceContextID != "" {
+					redirectURL += "&workspace=" + workspaceContextID
+				}
+				utils.Redirect(w, r, redirectURL)
 				return
 			}
 		}
-		if _, err := tx.ExecContext(r.Context(), `
-			DELETE FROM channel_users
-			WHERE user_id = $1
-			  AND channel_id IN (
-				SELECT c.id FROM channels c
-				JOIN workspaces w ON w.id = c.workspace_id
-				WHERE w.company_id = $2
-			  )`, membership.UserID, companyID); err != nil {
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM channel_users WHERE user_id=$1 AND channel_id IN (SELECT c.id FROM channels c JOIN workspaces w ON w.id=c.workspace_id WHERE w.company_id=$2)`, membership.UserID, companyID); err != nil {
 			_ = db.RollbackTransaction(tx)
 			http.Error(w, "could not remove channel access", http.StatusInternalServerError)
 			return
 		}
-		if _, err := tx.ExecContext(r.Context(), `
-			DELETE FROM chat_users
-			WHERE user_id = $1
-			  AND chat_id IN (
-				SELECT ch.id FROM chats ch
-				JOIN workspaces w ON w.id = ch.workspace_id
-				WHERE w.company_id = $2
-			  )`, membership.UserID, companyID); err != nil {
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM chat_users WHERE user_id=$1 AND chat_id IN (SELECT ch.id FROM chats ch JOIN workspaces w ON w.id=ch.workspace_id WHERE w.company_id=$2)`, membership.UserID, companyID); err != nil {
 			_ = db.RollbackTransaction(tx)
 			http.Error(w, "could not remove chat access", http.StatusInternalServerError)
 			return
 		}
-		if _, err := tx.ExecContext(r.Context(), `
-			DELETE FROM workspace_users
-			WHERE user_id = $1
-			  AND workspace_id IN (SELECT id FROM workspaces WHERE company_id = $2)`, membership.UserID, companyID); err != nil {
+		if _, err := tx.ExecContext(r.Context(), `DELETE FROM workspace_users WHERE user_id=$1 AND workspace_id IN (SELECT id FROM workspaces WHERE company_id=$2)`, membership.UserID, companyID); err != nil {
 			_ = db.RollbackTransaction(tx)
 			http.Error(w, "could not remove workspace access", http.StatusInternalServerError)
 			return
@@ -454,6 +425,10 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			utils.Redirect(w, r, "/workspaces")
 			return
 		}
-		utils.Redirect(w, r, "/companies/"+companyID+"/members")
+		redirectURL := "/companies/" + companyID + "/members?success=Member+removed"
+		if workspaceContextID != "" {
+			redirectURL += "&workspace=" + workspaceContextID
+		}
+		utils.Redirect(w, r, redirectURL)
 	}))
 }

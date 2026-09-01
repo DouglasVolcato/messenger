@@ -30,42 +30,42 @@ func (wu *WorkspaceUser) Create(tx *sql.Tx, ctx context.Context) error {
 	if wu.Status == "" {
 		wu.Status = "ACTIVE"
 	}
-
-	return tx.QueryRowContext(ctx, `
+	var existingMembers int
+	_ = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM workspace_users WHERE workspace_id = $1`, wu.WorkspaceID).Scan(&existingMembers)
+	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO workspace_users (id, workspace_id, user_id, role, status)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING created_at, updated_at`,
-		wu.ID, wu.WorkspaceID, wu.UserID, wu.Role, wu.Status,
-	).Scan(&wu.CreatedAt, &wu.UpdatedAt)
+		RETURNING created_at, updated_at`, wu.ID, wu.WorkspaceID, wu.UserID, wu.Role, wu.Status,
+	).Scan(&wu.CreatedAt, &wu.UpdatedAt); err != nil {
+		return err
+	}
+	if existingMembers > 0 && wu.Status == "ACTIVE" {
+		var workspaceName string
+		if err := tx.QueryRowContext(ctx, `SELECT name FROM workspaces WHERE id = $1`, wu.WorkspaceID).Scan(&workspaceName); err == nil {
+			title := "Workspace access"
+			actionURL := "/workspaces/" + wu.WorkspaceID
+			n := UserNotification{UserID: wu.UserID, Type: "WORKSPACE_MEMBERSHIP", Title: &title, Content: "You were added to " + workspaceName + " as " + wu.Role + ".", ActionURL: &actionURL}
+			if err := n.Create(tx, ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (wu *WorkspaceUser) Update(tx *sql.Tx, ctx context.Context) error {
-	return tx.QueryRowContext(ctx, `
-		UPDATE workspace_users SET role = $1, status = $2 WHERE id = $3
-		RETURNING updated_at`, wu.Role, wu.Status, wu.ID,
-	).Scan(&wu.UpdatedAt)
+	return tx.QueryRowContext(ctx, `UPDATE workspace_users SET role = $1, status = $2 WHERE id = $3 RETURNING updated_at`, wu.Role, wu.Status, wu.ID).Scan(&wu.UpdatedAt)
 }
-
 func (wu *WorkspaceUser) Delete(tx *sql.Tx, ctx context.Context) error {
 	_, err := tx.ExecContext(ctx, "DELETE FROM workspace_users WHERE id = $1", wu.ID)
 	return err
 }
-
 func (wu *WorkspaceUser) GetOne(db *sql.DB, ctx context.Context) error {
-	return db.QueryRowContext(ctx, `
-		SELECT id, workspace_id, user_id, role, status, created_at, updated_at
-		FROM workspace_users WHERE id = $1`, wu.ID,
-	).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
+	return db.QueryRowContext(ctx, `SELECT id, workspace_id, user_id, role, status, created_at, updated_at FROM workspace_users WHERE id = $1`, wu.ID).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
 }
-
 func (wu *WorkspaceUser) GetOneByWorkspaceAndUser(db *sql.DB, ctx context.Context) error {
-	return db.QueryRowContext(ctx, `
-		SELECT id, workspace_id, user_id, role, status, created_at, updated_at
-		FROM workspace_users
-		WHERE workspace_id = $1 AND user_id = $2`, wu.WorkspaceID, wu.UserID,
-	).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
+	return db.QueryRowContext(ctx, `SELECT id, workspace_id, user_id, role, status, created_at, updated_at FROM workspace_users WHERE workspace_id = $1 AND user_id = $2`, wu.WorkspaceID, wu.UserID).Scan(&wu.ID, &wu.WorkspaceID, &wu.UserID, &wu.Role, &wu.Status, &wu.CreatedAt, &wu.UpdatedAt)
 }
-
 func (wu *WorkspaceUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]WorkspaceUser, int64, error) {
 	if page < 1 {
 		page = 1
@@ -77,18 +77,11 @@ func (wu *WorkspaceUser) GetMany(db *sql.DB, ctx context.Context, page, limit in
 		limit = 100
 	}
 	offset := (page - 1) * limit
-
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, workspace_id, user_id, role, status, created_at, updated_at, COUNT(*) OVER() AS total
-		FROM workspace_users
-		WHERE workspace_id = $1
-		ORDER BY created_at DESC, id DESC
-		LIMIT $2 OFFSET $3`, wu.WorkspaceID, limit, offset)
+	rows, err := db.QueryContext(ctx, `SELECT id, workspace_id, user_id, role, status, created_at, updated_at, COUNT(*) OVER() AS total FROM workspace_users WHERE workspace_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`, wu.WorkspaceID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-
 	items := make([]WorkspaceUser, 0)
 	var total int64
 	for rows.Next() {
@@ -98,6 +91,5 @@ func (wu *WorkspaceUser) GetMany(db *sql.DB, ctx context.Context, page, limit in
 		}
 		items = append(items, item)
 	}
-
 	return items, total, rows.Err()
 }

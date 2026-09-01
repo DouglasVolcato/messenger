@@ -11,15 +11,19 @@ import (
 type ViewData struct {
 	AppVersion string
 	Error      string
+	Success    string
+	BackURL    string
 
 	User      models.User
 	Company   models.Company
 	Workspace models.Workspace
 	Channel   models.Channel
 
-	Role        string
-	CompanyRole string
-	CanManage   bool
+	Role                string
+	CompanyRole         string
+	CanManage           bool
+	WorkspaceContextID  string
+	UnreadNotifications int64
 
 	Workspaces        []WorkspaceView
 	CompanyWorkspaces []CompanyWorkspaceView
@@ -88,6 +92,12 @@ type ChatView struct {
 	Type        string
 }
 
+type ReactionView struct {
+	Reaction string
+	Count    int64
+	Reacted  bool
+}
+
 type MessageView struct {
 	ID        string
 	UserID    string
@@ -97,6 +107,7 @@ type MessageView struct {
 	CreatedAt time.Time
 	EditedAt  *time.Time
 	DeletedAt *time.Time
+	Reactions []ReactionView
 }
 
 type MemberView struct {
