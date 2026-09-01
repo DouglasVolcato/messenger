@@ -46,6 +46,7 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			BackURL:            backURL,
 			WorkspaceContextID: workspaceContextID,
 			Success:            r.URL.Query().Get("success"),
+			Error:              r.URL.Query().Get("error"),
 		})
 	}))
 
@@ -69,7 +70,11 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 		user.Username = strings.TrimSpace(r.FormValue("username"))
 		user.Email = strings.TrimSpace(r.FormValue("email"))
 		if user.Name == "" || user.Username == "" || user.Email == "" {
-			http.Error(w, "name, username and email are required", http.StatusBadRequest)
+			redirectURL := "/settings/profile?error=Name,+username+and+email+are+required"
+			if workspaceID := r.FormValue("workspace_id"); workspaceID != "" {
+				redirectURL += "&workspace=" + workspaceID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
 		tx, err := db.BeginTransaction(r.Context())
@@ -79,7 +84,11 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 		}
 		if err := user.Update(tx, r.Context()); err != nil {
 			_ = db.RollbackTransaction(tx)
-			http.Error(w, "username or email already in use", http.StatusBadRequest)
+			redirectURL := "/settings/profile?error=Username+or+email+already+in+use"
+			if workspaceID := r.FormValue("workspace_id"); workspaceID != "" {
+				redirectURL += "&workspace=" + workspaceID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
 		if err := db.CommitTransaction(tx); err != nil {
@@ -122,6 +131,7 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			BackURL:            backURL,
 			WorkspaceContextID: workspaceContextID,
 			Success:            r.URL.Query().Get("success"),
+			Error:              r.URL.Query().Get("error"),
 		})
 	}))
 
@@ -136,7 +146,11 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			return
 		}
 		if r.FormValue("new_password") == "" || r.FormValue("new_password") != r.FormValue("confirm_password") {
-			http.Error(w, "new passwords do not match", http.StatusBadRequest)
+			redirectURL := "/settings/security?error=New+passwords+do+not+match"
+			if workspaceID := r.FormValue("workspace_id"); workspaceID != "" {
+				redirectURL += "&workspace=" + workspaceID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
 		user := models.User{ID: session.ID}
@@ -146,7 +160,11 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 			return
 		}
 		if !utils.ComparePassword(user.PasswordHash, r.FormValue("current_password")) {
-			http.Error(w, "current password is invalid", http.StatusBadRequest)
+			redirectURL := "/settings/security?error=Current+password+is+invalid"
+			if workspaceID := r.FormValue("workspace_id"); workspaceID != "" {
+				redirectURL += "&workspace=" + workspaceID
+			}
+			utils.Redirect(w, r, redirectURL)
 			return
 		}
 		user.Password = r.FormValue("new_password")

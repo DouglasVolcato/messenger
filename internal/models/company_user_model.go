@@ -27,9 +27,6 @@ func (cu *CompanyUser) Create(tx *sql.Tx, ctx context.Context) error {
 		cu.Role = "MEMBER"
 	}
 
-	var existingMembers int
-	_ = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM company_users WHERE company_id = $1`, cu.CompanyID).Scan(&existingMembers)
-
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO company_users (id, company_id, user_id, role)
 		VALUES ($1, $2, $3, $4)
@@ -39,21 +36,19 @@ func (cu *CompanyUser) Create(tx *sql.Tx, ctx context.Context) error {
 		return err
 	}
 
-	if existingMembers > 0 {
-		var companyName string
-		if err := tx.QueryRowContext(ctx, `SELECT name FROM companies WHERE id = $1`, cu.CompanyID).Scan(&companyName); err == nil {
-			title := "Company access"
-			actionURL := "/workspaces"
-			notification := UserNotification{
-				UserID:    cu.UserID,
-				Type:      "COMPANY_MEMBERSHIP",
-				Title:     &title,
-				Content:   "You were added to " + companyName + " as " + cu.Role + ".",
-				ActionURL: &actionURL,
-			}
-			if err := notification.Create(tx, ctx); err != nil {
-				return err
-			}
+	var companyName string
+	if err := tx.QueryRowContext(ctx, `SELECT name FROM companies WHERE id = $1`, cu.CompanyID).Scan(&companyName); err == nil {
+		title := "Company access"
+		actionURL := "/workspaces"
+		notification := UserNotification{
+			UserID:    cu.UserID,
+			Type:      "COMPANY_MEMBERSHIP",
+			Title:     &title,
+			Content:   "You were added to " + companyName + " as " + cu.Role + ".",
+			ActionURL: &actionURL,
+		}
+		if err := notification.Create(tx, ctx); err != nil {
+			return err
 		}
 	}
 	return nil
