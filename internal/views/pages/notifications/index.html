@@ -1,1 +1,99 @@
-<!doctype html><html lang="en"><head><title>Notifications - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-4xl mx-auto p-6 pt-10"><div class="flex justify-between mb-6"><div><a class="text-green-800" href="{{.BackURL}}">← Back</a><h1 class="text-3xl font-bold mt-2">Notifications</h1></div><form action="/api/notifications/read-all" method="post">{{if .WorkspaceContextID}}<input type="hidden" name="workspace_id" value="{{.WorkspaceContextID}}">{{end}}<button class="text-green-800 font-bold">Mark all as read</button></form></div>{{if .Success}}<div class="card p-3 mb-4 border-green-700">{{.Success}}</div>{{end}}<div class="space-y-3">{{range .Notifications}}<article class="card p-5 {{if not .IsRead}}border-green-700{{end}}"><div class="flex justify-between gap-4"><div class="min-w-0"><strong>{{if .Title}}{{.Title}}{{else}}{{.Type}}{{end}}</strong><p class="muted mt-1">{{.Content}}</p>{{if .ActionURL}}<a class="inline-block mt-2 text-green-800 font-bold text-sm" href="/notifications/{{.ID}}">Open</a>{{else if not .IsRead}}<form action="/api/notifications/{{.ID}}/read" method="post" class="mt-2">{{if $.WorkspaceContextID}}<input type="hidden" name="workspace_id" value="{{$.WorkspaceContextID}}">{{end}}<button class="text-green-800 text-sm">Mark as read</button></form>{{end}}</div><span class="text-xs muted whitespace-nowrap">{{.CreatedAt.Format "02 Jan 15:04"}}</span></div></article>{{else}}<div class="card p-8 text-center muted">No notifications.</div>{{end}}</div><div class="mt-5 flex justify-between text-sm"><span>{{.Total}} notifications</span><div class="flex gap-3">{{if .HasPrev}}<a href="?page={{.PrevPage}}{{if .WorkspaceContextID}}&workspace={{.WorkspaceContextID}}{{end}}">Previous</a>{{end}}<span>Page {{.Page}}</span>{{if .HasNext}}<a href="?page={{.NextPage}}{{if .WorkspaceContextID}}&workspace={{.WorkspaceContextID}}{{end}}">Next</a>{{end}}</div></div></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Notifications - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-4xl mx-auto p-6 pt-10">
+      <div class="flex justify-between mb-6">
+        <div>
+          <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
+          <h1 class="text-3xl font-bold mt-2">Notifications</h1>
+        </div>
+        <form action="/api/notifications/read-all" method="post">
+          {{ if .WorkspaceContextID }}
+            <input
+              type="hidden"
+              name="workspace_id"
+              value="{{ .WorkspaceContextID }}"
+            />
+          {{ end }}<button class="text-green-800 font-bold">
+            Mark all as read
+          </button>
+        </form>
+      </div>
+      {{ if .Success }}
+        <div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>
+      {{ end }}
+      <div class="space-y-3">
+        {{ range .Notifications }}
+          <article
+            class="card p-5 {{ if not .IsRead }}border-green-700{{ end }}"
+          >
+            <div class="flex justify-between gap-4">
+              <div class="min-w-0">
+                <strong
+                  >{{ if .Title }}
+                    {{ .Title }}
+                  {{ else }}
+                    {{ .Type }}
+                  {{ end }}</strong
+                >
+                <p class="muted mt-1">{{ .Content }}</p>
+                {{ if .ActionURL }}
+                  <a
+                    class="inline-block mt-2 text-green-800 font-bold text-sm"
+                    href="/notifications/{{ .ID }}"
+                    >Open</a
+                  >
+                {{ else if not .IsRead }}
+                  <form
+                    action="/api/notifications/{{ .ID }}/read"
+                    method="post"
+                    class="mt-2"
+                  >
+                    {{ if $.WorkspaceContextID }}
+                      <input
+                        type="hidden"
+                        name="workspace_id"
+                        value="{{ $.WorkspaceContextID }}"
+                      />
+                    {{ end }}<button class="text-green-800 text-sm">
+                      Mark as read
+                    </button>
+                  </form>
+                {{ end }}
+              </div>
+              <span class="text-xs muted whitespace-nowrap"
+                >{{ .CreatedAt.Format "02 Jan 15:04" }}</span
+              >
+            </div>
+          </article>
+        {{ else }}
+          <div class="card p-8 text-center muted">No notifications.</div>
+        {{ end }}
+      </div>
+      <div class="mt-5 flex justify-between text-sm">
+        <span>{{ .Total }} notifications</span>
+        <div class="flex gap-3">
+          {{ if .HasPrev }}
+            <a
+              href="?page={{ .PrevPage }}{{ if .WorkspaceContextID }}
+                &workspace={{ .WorkspaceContextID }}
+              {{ end }}"
+              >Previous</a
+            >
+          {{ end }}<span>Page {{ .Page }}</span>{{ if .HasNext }}
+            <a
+              href="?page={{ .NextPage }}{{ if .WorkspaceContextID }}
+                &workspace={{ .WorkspaceContextID }}
+              {{ end }}"
+              >Next</a
+            >
+          {{ end }}
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

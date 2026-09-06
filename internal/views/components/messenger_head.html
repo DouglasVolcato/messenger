@@ -1,1 +1,51 @@
-{{define "messengerHead"}}<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.tailwindcss.com"></script><link href="https://fonts.googleapis.com/css2?family=Literata:wght@600;700&family=Nunito+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><style>body{font-family:"Nunito Sans",sans-serif;background:#faf6f0;color:#2e3230}h1,h2,h3{font-family:"Literata",serif}.card{background:#fff;border:1px solid #e4e0d8;border-radius:16px}.btn{display:inline-flex;align-items:center;justify-content:center;border-radius:12px;padding:.65rem 1rem;font-weight:700}.primary{background:#4a7c59;color:white}.soft{background:#f0ece4}.muted{color:#6b6358}.input{width:100%;border:1px solid #c4c8bc;border-radius:10px;padding:.7rem .8rem;background:white}</style>{{end}}
+{{ define "messengerHead" }}
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link
+    rel="stylesheet"
+    href="/static/assets/tailwind.min.css?v={{ .AppVersion }}"
+  />
+  <link rel="stylesheet" href="/static/assets/fonts.css?v={{ .AppVersion }}" />
+  <style>
+    body {
+      font-family: "Nunito Sans", sans-serif;
+      background: #faf6f0;
+      color: #2e3230;
+    }
+    h1,
+    h2,
+    h3 {
+      font-family: "Literata", serif;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e4e0d8;
+      border-radius: 16px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      padding: 0.65rem 1rem;
+      font-weight: 700;
+    }
+    .primary {
+      background: #4a7c59;
+      color: white;
+    }
+    .soft {
+      background: #f0ece4;
+    }
+    .muted {
+      color: #6b6358;
+    }
+    .input {
+      width: 100%;
+      border: 1px solid #c4c8bc;
+      border-radius: 10px;
+      padding: 0.7rem 0.8rem;
+      background: white;
+    }
+  </style>
+{{ end }}

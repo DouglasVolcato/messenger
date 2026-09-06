@@ -1,1 +1,163 @@
-<!doctype html><html lang="en"><head><title>Workspace - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><div class="min-h-screen grid md:grid-cols-[280px_1fr]"><aside class="soft p-5 border-r border-stone-300"><div class="flex justify-between items-center"><a href="/workspaces" class="font-bold text-xl text-green-800">Messenger</a><span class="text-xs rounded-full bg-white px-2 py-1">{{.Role}}</span></div><h2 class="font-bold mt-6">{{.Workspace.Name}}</h2><p class="muted text-xs">{{.Company.Name}}</p>{{if .CanManage}}<div class="grid grid-cols-2 gap-2 mt-4 text-sm"><a class="btn bg-white" href="/workspaces/{{.Workspace.ID}}/channels">Channels</a><a class="btn bg-white" href="/workspaces/{{.Workspace.ID}}/members">People</a></div>{{end}}{{if or (eq .CompanyRole "OWNER") (eq .CompanyRole "ADMIN")}}<div class="grid grid-cols-2 gap-2 mt-2 text-sm"><a class="btn bg-white" href="/companies/{{.Company.ID}}/members">Company</a><a class="btn bg-white" href="/companies/{{.Company.ID}}/settings">Settings</a></div>{{end}}{{if .User.SystemAdmin}}<a class="block mt-3 text-sm text-green-800" href="/admin">System administration</a>{{end}}<h3 class="font-bold mt-7 mb-2">Channels</h3><nav class="space-y-1">{{range .Channels}}<a class="block rounded-lg px-3 py-2 hover:bg-white" href="/workspaces/{{$.Workspace.ID}}?channel={{.ID}}"># {{.Name}}</a>{{else}}<p class="muted text-sm">No channels available.</p>{{end}}</nav><h3 class="font-bold mt-7 mb-2">Messages</h3><nav class="space-y-1">{{range .Chats}}<a class="block rounded-lg px-3 py-2 hover:bg-white" href="/workspaces/{{$.Workspace.ID}}?chat={{.ID}}">{{.Name}}</a>{{else}}<p class="muted text-sm">No direct or group chats.</p>{{end}}</nav><div class="mt-8 flex gap-2 text-sm"><a href="/notifications" class="text-green-800">Notifications</a><a href="/settings/profile" class="text-green-800">Profile</a></div></aside><main class="flex flex-col min-h-screen">{{if .CurrentChat.ID}}<header class="border-b border-stone-300 p-5"><h1 class="text-2xl font-bold">{{.CurrentChat.Name}}</h1>{{if .CurrentChat.Description}}<p class="muted">{{.CurrentChat.Description}}</p>{{end}}</header><section class="flex-1 p-6 space-y-5 overflow-y-auto">{{range .Messages}}<article class="max-w-2xl"><div class="flex gap-2 items-baseline"><strong>{{.UserName}}</strong><span class="text-xs muted">{{.CreatedAt.Format "02 Jan 15:04"}}</span></div>{{if .DeletedAt}}<p class="muted italic">Message removed</p>{{else}}<p class="mt-1">{{.Content}}{{if .EditedAt}} <span class="text-xs muted">edited</span>{{end}}</p><div class="flex gap-2 mt-2 text-xs">{{if eq .UserID $.User.ID}}<form action="/api/messages/{{.ID}}" method="post" class="flex gap-1"><input class="border rounded px-2 py-1" name="content" value="{{.Content}}"><button class="text-green-800">Edit</button></form><form action="/api/messages/{{.ID}}/delete" method="post"><button class="text-red-700">Delete</button></form>{{else if and $.CanManage (eq $.CurrentChat.Type "CHANNEL")}}<form action="/api/messages/{{.ID}}/delete" method="post"><button class="text-red-700">Delete</button></form>{{end}}<form action="/api/messages/{{.ID}}/reactions" method="post"><input type="hidden" name="reaction" value="👍"><button>👍</button></form></div>{{end}}</article>{{else}}<p class="muted">No messages yet.</p>{{end}}</section><form action="/api/chats/{{.CurrentChat.ID}}/messages" method="post" class="border-t border-stone-300 p-4 flex gap-3"><input class="input" name="content" placeholder="Message {{.CurrentChat.Name}}" required><button class="btn primary">Send</button></form>{{else}}<div class="m-auto text-center"><h1 class="text-2xl font-bold">{{.Workspace.Name}}</h1><p class="muted mt-2">Select an available conversation.</p></div>{{end}}</main></div></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Workspace - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <div class="min-h-screen grid md:grid-cols-[280px_1fr]">
+      <aside class="soft p-5 border-r border-stone-300">
+        <div class="flex justify-between items-center">
+          <a href="/workspaces" class="font-bold text-xl text-green-800"
+            >Messenger</a
+          ><span class="text-xs rounded-full bg-white px-2 py-1"
+            >{{ .Role }}</span
+          >
+        </div>
+        <h2 class="font-bold mt-6">{{ .Workspace.Name }}</h2>
+        <p class="muted text-xs">{{ .Company.Name }}</p>
+        {{ if .CanManage }}
+          <div class="grid grid-cols-2 gap-2 mt-4 text-sm">
+            <a
+              class="btn bg-white"
+              href="/workspaces/{{ .Workspace.ID }}/channels"
+              >Channels</a
+            ><a
+              class="btn bg-white"
+              href="/workspaces/{{ .Workspace.ID }}/members"
+              >People</a
+            >
+          </div>
+        {{ end }}{{ if or (eq .CompanyRole "OWNER") (eq .CompanyRole "ADMIN") }}
+          <div class="grid grid-cols-2 gap-2 mt-2 text-sm">
+            <a class="btn bg-white" href="/companies/{{ .Company.ID }}/members"
+              >Company</a
+            ><a
+              class="btn bg-white"
+              href="/companies/{{ .Company.ID }}/settings"
+              >Settings</a
+            >
+          </div>
+        {{ end }}{{ if .User.SystemAdmin }}
+          <a class="block mt-3 text-sm text-green-800" href="/admin"
+            >System administration</a
+          >
+        {{ end }}
+        <h3 class="font-bold mt-7 mb-2">Channels</h3>
+        <nav class="space-y-1">
+          {{ range .Channels }}
+            <a
+              class="block rounded-lg px-3 py-2 hover:bg-white"
+              href="/workspaces/{{ $.Workspace.ID }}?channel={{ .ID }}"
+              ># {{ .Name }}</a
+            >
+          {{ else }}
+            <p class="muted text-sm">No channels available.</p>
+          {{ end }}
+        </nav>
+        <h3 class="font-bold mt-7 mb-2">Messages</h3>
+        <nav class="space-y-1">
+          {{ range .Chats }}
+            <a
+              class="block rounded-lg px-3 py-2 hover:bg-white"
+              href="/workspaces/{{ $.Workspace.ID }}?chat={{ .ID }}"
+              >{{ .Name }}</a
+            >
+          {{ else }}
+            <p class="muted text-sm">No direct or group chats.</p>
+          {{ end }}
+        </nav>
+        <div class="mt-8 flex gap-2 text-sm">
+          <a href="/notifications" class="text-green-800">Notifications</a
+          ><a href="/settings/profile" class="text-green-800">Profile</a>
+        </div>
+      </aside>
+      <main class="flex flex-col min-h-screen">
+        {{ if .CurrentChat.ID }}
+          <header class="border-b border-stone-300 p-5">
+            <h1 class="text-2xl font-bold">{{ .CurrentChat.Name }}</h1>
+            {{ if .CurrentChat.Description }}
+              <p class="muted">{{ .CurrentChat.Description }}</p>
+            {{ end }}
+          </header>
+          <section class="flex-1 p-6 space-y-5 overflow-y-auto">
+            {{ range .Messages }}
+              <article class="max-w-2xl">
+                <div class="flex gap-2 items-baseline">
+                  <strong>{{ .UserName }}</strong
+                  ><span class="text-xs muted"
+                    >{{ .CreatedAt.Format "02 Jan 15:04" }}</span
+                  >
+                </div>
+                {{ if .DeletedAt }}
+                  <p class="muted italic">Message removed</p>
+                {{ else }}
+                  <p class="mt-1">
+                    {{ .Content }}{{ if .EditedAt }}
+                      <span class="text-xs muted">edited</span>
+                    {{ end }}
+                  </p>
+                  <div class="flex gap-2 mt-2 text-xs">
+                    {{ if eq .UserID $.User.ID }}
+                      <form
+                        action="/api/messages/{{ .ID }}"
+                        method="post"
+                        class="flex gap-1"
+                      >
+                        <input
+                          class="border rounded px-2 py-1"
+                          name="content"
+                          value="{{ .Content }}"
+                        /><button class="text-green-800">Edit</button>
+                      </form>
+                      <form
+                        action="/api/messages/{{ .ID }}/delete"
+                        method="post"
+                      >
+                        <button class="text-red-700">Delete</button>
+                      </form>
+                    {{ else if and $.CanManage (eq $.CurrentChat.Type "CHANNEL") }}
+                      <form
+                        action="/api/messages/{{ .ID }}/delete"
+                        method="post"
+                      >
+                        <button class="text-red-700">Delete</button>
+                      </form>
+                    {{ end }}
+                    <form
+                      action="/api/messages/{{ .ID }}/reactions"
+                      method="post"
+                    >
+                      <input type="hidden" name="reaction" value="👍" /><button>
+                        👍
+                      </button>
+                    </form>
+                  </div>
+                {{ end }}
+              </article>
+            {{ else }}
+              <p class="muted">No messages yet.</p>
+            {{ end }}
+          </section>
+          <form
+            action="/api/chats/{{ .CurrentChat.ID }}/messages"
+            method="post"
+            class="border-t border-stone-300 p-4 flex gap-3"
+          >
+            <input
+              class="input"
+              name="content"
+              placeholder="Message {{ .CurrentChat.Name }}"
+              required
+            /><button class="btn primary">Send</button>
+          </form>
+        {{ else }}
+          <div class="m-auto text-center">
+            <h1 class="text-2xl font-bold">{{ .Workspace.Name }}</h1>
+            <p class="muted mt-2">Select an available conversation.</p>
+          </div>
+        {{ end }}
+      </main>
+    </div>
+  </body>
+</html>

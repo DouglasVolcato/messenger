@@ -1,1 +1,54 @@
-<!doctype html><html lang="en"><head><title>Security - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-2xl mx-auto p-6 pt-10"><a class="text-green-800" href="{{.BackURL}}">← Profile</a><h1 class="text-3xl font-bold mt-2 mb-6">Security</h1>{{if .Success}}<div class="card p-3 mb-4 border-green-700">{{.Success}}</div>{{end}}{{if .Error}}<div class="card p-3 mb-4 border-red-400 text-red-700">{{.Error}}</div>{{end}}<form action="/api/settings/security" method="post" class="card p-6 space-y-4">{{if .WorkspaceContextID}}<input type="hidden" name="workspace_id" value="{{.WorkspaceContextID}}">{{end}}<label class="block">Current password<input class="input mt-1" name="current_password" type="password" required></label><label class="block">New password<input class="input mt-1" name="new_password" type="password" required></label><label class="block">Confirm new password<input class="input mt-1" name="confirm_password" type="password" required></label><div class="flex justify-end"><button class="btn primary">Update password</button></div></form></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Security - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-2xl mx-auto p-6 pt-10">
+      <a class="text-green-800" href="{{ .BackURL }}">← Profile</a>
+      <h1 class="text-3xl font-bold mt-2 mb-6">Security</h1>
+      {{ if .Success }}
+        <div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>
+      {{ end }}{{ if .Error }}
+        <div class="card p-3 mb-4 border-red-400 text-red-700">
+          {{ .Error }}
+        </div>
+      {{ end }}
+      <form
+        action="/api/settings/security"
+        method="post"
+        class="card p-6 space-y-4"
+      >
+        {{ if .WorkspaceContextID }}
+          <input
+            type="hidden"
+            name="workspace_id"
+            value="{{ .WorkspaceContextID }}"
+          />
+        {{ end }}<label class="block"
+          >Current password<input
+            class="input mt-1"
+            name="current_password"
+            type="password"
+            required /></label
+        ><label class="block"
+          >New password<input
+            class="input mt-1"
+            name="new_password"
+            type="password"
+            required /></label
+        ><label class="block"
+          >Confirm new password<input
+            class="input mt-1"
+            name="confirm_password"
+            type="password"
+            required
+        /></label>
+        <div class="flex justify-end">
+          <button class="btn primary">Update password</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

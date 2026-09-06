@@ -1,1 +1,32 @@
-<!doctype html><html lang="en"><head><title>New workspace - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-xl mx-auto p-6 pt-12"><a href="{{.BackURL}}" class="text-green-800">← Back</a><h1 class="text-3xl font-bold mt-3 mb-2">New workspace</h1><p class="muted mb-6">{{.Company.Name}} · {{.CompanyRole}}</p><form action="/api/companies/{{.Company.ID}}/workspaces" method="post" class="card p-6 space-y-4"><label class="block">Name<input class="input mt-1" name="workspace-name" required></label><label class="block">Slug<input class="input mt-1" name="workspace-slug" required></label><div class="flex justify-end gap-3"><a href="{{.BackURL}}" class="btn soft">Cancel</a><button class="btn primary">Create workspace</button></div></form></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>New workspace - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-xl mx-auto p-6 pt-12">
+      <a href="{{ .BackURL }}" class="text-green-800">← Back</a>
+      <h1 class="text-3xl font-bold mt-3 mb-2">New workspace</h1>
+      <p class="muted mb-6">{{ .Company.Name }} · {{ .CompanyRole }}</p>
+      <form
+        action="/api/companies/{{ .Company.ID }}/workspaces"
+        method="post"
+        class="card p-6 space-y-4"
+      >
+        <label class="block"
+          >Name<input
+            class="input mt-1"
+            name="workspace-name"
+            required /></label
+        ><label class="block"
+          >Slug<input class="input mt-1" name="workspace-slug" required
+        /></label>
+        <div class="flex justify-end gap-3">
+          <a href="{{ .BackURL }}" class="btn soft">Cancel</a
+          ><button class="btn primary">Create workspace</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>
