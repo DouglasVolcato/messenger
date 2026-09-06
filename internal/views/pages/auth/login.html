@@ -1,1 +1,39 @@
-<!doctype html><html lang="en"><head><title>Sign in - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-md mx-auto p-6 pt-24"><section class="card p-8"><h1 class="text-3xl font-bold text-green-800">Messenger</h1><p class="muted mt-2 mb-6">Sign in to continue.</p>{{if .Error}}<p class="mb-4 rounded-lg bg-red-50 p-3 text-red-700">{{.Error}}</p>{{end}}<form action="/api/auth/login" method="post" class="space-y-4"><label class="block">Email or username<input class="input mt-1" name="identifier" value="{{.Identifier}}" required></label><label class="block">Password<input class="input mt-1" name="password" type="password" required></label><button class="btn primary w-full">Sign in</button></form><p class="mt-5 text-center muted">No account? <a class="text-green-800 font-bold" href="/register">Create account</a></p></section></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Sign in - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-md mx-auto p-6 pt-24">
+      <section class="card p-8">
+        <h1 class="text-3xl font-bold text-green-800">Messenger</h1>
+        <p class="muted mt-2 mb-6">Sign in to continue.</p>
+        {{ if .Error }}
+          <p class="mb-4 rounded-lg bg-red-50 p-3 text-red-700">{{ .Error }}</p>
+        {{ end }}
+        <form action="/api/auth/login" method="post" class="space-y-4">
+          <label class="block"
+            >Email or username<input
+              class="input mt-1"
+              name="identifier"
+              value="{{ .Identifier }}"
+              required /></label
+          ><label class="block"
+            >Password<input
+              class="input mt-1"
+              name="password"
+              type="password"
+              required /></label
+          ><button class="btn primary w-full">Sign in</button>
+        </form>
+        <p class="mt-5 text-center muted">
+          No account?
+          <a class="text-green-800 font-bold" href="/register"
+            >Create account</a
+          >
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

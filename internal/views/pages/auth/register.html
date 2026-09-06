@@ -1,1 +1,56 @@
-<!doctype html><html lang="en"><head><title>Create account - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-lg mx-auto p-6 pt-16"><section class="card p-8"><h1 class="text-3xl font-bold text-green-800">Create account</h1><p class="muted mt-2 mb-6">Join Messenger.</p>{{if .Error}}<p class="mb-4 rounded-lg bg-red-50 p-3 text-red-700">{{.Error}}</p>{{end}}<form action="/api/auth/register" method="post" class="space-y-4"><label class="block">Name<input class="input mt-1" name="name" value="{{.Name}}" required></label><label class="block">Username<input class="input mt-1" name="username" value="{{.Username}}" required></label><label class="block">Email<input class="input mt-1" name="email" type="email" value="{{.Email}}" required></label><label class="block">Password<input class="input mt-1" name="password" type="password" required></label><label class="block">Confirm password<input class="input mt-1" name="confirm_password" type="password" required></label><button class="btn primary w-full">Create account</button></form><p class="mt-5 text-center muted">Already registered? <a class="text-green-800 font-bold" href="/login">Sign in</a></p></section></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Create account - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-lg mx-auto p-6 pt-16">
+      <section class="card p-8">
+        <h1 class="text-3xl font-bold text-green-800">Create account</h1>
+        <p class="muted mt-2 mb-6">Join Messenger.</p>
+        {{ if .Error }}
+          <p class="mb-4 rounded-lg bg-red-50 p-3 text-red-700">{{ .Error }}</p>
+        {{ end }}
+        <form action="/api/auth/register" method="post" class="space-y-4">
+          <label class="block"
+            >Name<input
+              class="input mt-1"
+              name="name"
+              value="{{ .Name }}"
+              required /></label
+          ><label class="block"
+            >Username<input
+              class="input mt-1"
+              name="username"
+              value="{{ .Username }}"
+              required /></label
+          ><label class="block"
+            >Email<input
+              class="input mt-1"
+              name="email"
+              type="email"
+              value="{{ .Email }}"
+              required /></label
+          ><label class="block"
+            >Password<input
+              class="input mt-1"
+              name="password"
+              type="password"
+              required /></label
+          ><label class="block"
+            >Confirm password<input
+              class="input mt-1"
+              name="confirm_password"
+              type="password"
+              required /></label
+          ><button class="btn primary w-full">Create account</button>
+        </form>
+        <p class="mt-5 text-center muted">
+          Already registered?
+          <a class="text-green-800 font-bold" href="/login">Sign in</a>
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

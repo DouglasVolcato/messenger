@@ -1,1 +1,37 @@
-<!doctype html><html lang="en"><head><title>New channel - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-xl mx-auto p-6 pt-10"><a class="text-green-800" href="/workspaces/{{.Workspace.ID}}/channels">← Channels</a><h1 class="text-3xl font-bold mt-2 mb-6">New channel</h1><form action="/api/workspaces/{{.Workspace.ID}}/channels" method="post" class="card p-6 space-y-4"><label class="block">Name<input class="input mt-1" name="channel-name" required></label><label class="block">Description<textarea class="input mt-1" name="channel-desc"></textarea></label><label class="block">Visibility<select class="input mt-1" name="visibility"><option>PUBLIC</option><option>PRIVATE</option></select></label><div class="flex justify-end"><button class="btn primary">Create channel</button></div></form></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>New channel - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-xl mx-auto p-6 pt-10">
+      <a class="text-green-800" href="/workspaces/{{ .Workspace.ID }}/channels"
+        >← Channels</a
+      >
+      <h1 class="text-3xl font-bold mt-2 mb-6">New channel</h1>
+      <form
+        action="/api/workspaces/{{ .Workspace.ID }}/channels"
+        method="post"
+        class="card p-6 space-y-4"
+      >
+        <label class="block"
+          >Name<input class="input mt-1" name="channel-name" required /></label
+        ><label class="block"
+          >Description<textarea
+            class="input mt-1"
+            name="channel-desc"
+          ></textarea></label
+        ><label class="block"
+          >Visibility<select class="input mt-1" name="visibility">
+            <option>PUBLIC</option>
+            <option>PRIVATE</option>
+          </select></label
+        >
+        <div class="flex justify-end">
+          <button class="btn primary">Create channel</button>
+        </div>
+      </form>
+    </main>
+  </body>
+</html>

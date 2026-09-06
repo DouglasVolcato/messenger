@@ -1,1 +1,65 @@
-<!doctype html><html lang="en"><head><title>Companies - Messenger Admin</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-6xl mx-auto p-6 pt-10"><header class="flex flex-wrap justify-between gap-4 items-center mb-8"><div><p class="text-sm font-bold text-green-800">Messenger Admin</p><h1 class="text-3xl font-bold">Companies</h1></div><nav class="flex gap-2"><a class="btn soft" href="/admin/users">Users</a><a class="btn primary" href="/admin/companies/new">Create company</a><a class="btn soft" href="/admin/logout">Logout</a></nav></header><form method="get" class="flex gap-3 mb-5"><input class="input" name="q" value="{{.Query}}" placeholder="Search companies"><button class="btn soft">Search</button></form><div class="card overflow-hidden"><div class="grid grid-cols-[1fr_150px_120px_100px] gap-3 p-4 font-bold border-b"><span>Company</span><span>Status</span><span>Users</span><span></span></div>{{range .AdminCompanies}}<div class="grid grid-cols-[1fr_150px_120px_100px] gap-3 p-4 border-b items-center"><div><strong>{{.Name}}</strong><div class="muted text-xs">{{.ID}}</div></div><span>{{.Status}}</span><span>{{.UserCount}}</span><a class="text-green-800 font-bold" href="/admin/companies/{{.ID}}/edit">Manage</a></div>{{else}}<p class="p-8 text-center muted">No companies found.</p>{{end}}</div><div class="flex justify-between mt-5 text-sm"><span>{{.Total}} companies</span><div class="flex gap-3">{{if .HasPrev}}<a href="?page={{.PrevPage}}&q={{.Query}}">Previous</a>{{end}}<span>Page {{.Page}}</span>{{if .HasNext}}<a href="?page={{.NextPage}}&q={{.Query}}">Next</a>{{end}}</div></div></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Companies - Messenger Admin</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-6xl mx-auto p-6 pt-10">
+      <header class="flex flex-wrap justify-between gap-4 items-center mb-8">
+        <div>
+          <p class="text-sm font-bold text-green-800">Messenger Admin</p>
+          <h1 class="text-3xl font-bold">Companies</h1>
+        </div>
+        <nav class="flex gap-2">
+          <a class="btn soft" href="/admin/users">Users</a
+          ><a class="btn primary" href="/admin/companies/new">Create company</a
+          ><a class="btn soft" href="/admin/logout">Logout</a>
+        </nav>
+      </header>
+      <form method="get" class="flex gap-3 mb-5">
+        <input
+          class="input"
+          name="q"
+          value="{{ .Query }}"
+          placeholder="Search companies"
+        /><button class="btn soft">Search</button>
+      </form>
+      <div class="card overflow-hidden">
+        <div
+          class="grid grid-cols-[1fr_150px_120px_100px] gap-3 p-4 font-bold border-b"
+        >
+          <span>Company</span><span>Status</span><span>Users</span><span></span>
+        </div>
+        {{ range .AdminCompanies }}
+          <div
+            class="grid grid-cols-[1fr_150px_120px_100px] gap-3 p-4 border-b items-center"
+          >
+            <div>
+              <strong>{{ .Name }}</strong>
+              <div class="muted text-xs">{{ .ID }}</div>
+            </div>
+            <span>{{ .Status }}</span><span>{{ .UserCount }}</span
+            ><a
+              class="text-green-800 font-bold"
+              href="/admin/companies/{{ .ID }}/edit"
+              >Manage</a
+            >
+          </div>
+        {{ else }}
+          <p class="p-8 text-center muted">No companies found.</p>
+        {{ end }}
+      </div>
+      <div class="flex justify-between mt-5 text-sm">
+        <span>{{ .Total }} companies</span>
+        <div class="flex gap-3">
+          {{ if .HasPrev }}
+            <a href="?page={{ .PrevPage }}&q={{ .Query }}">Previous</a>
+          {{ end }}<span>Page {{ .Page }}</span>{{ if .HasNext }}
+            <a href="?page={{ .NextPage }}&q={{ .Query }}">Next</a>
+          {{ end }}
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

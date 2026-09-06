@@ -1,1 +1,91 @@
-<!doctype html><html lang="en"><head><title>Company members - Messenger</title>{{template "messengerHead" .}}</head><body class="min-h-screen"><main class="max-w-5xl mx-auto p-6 pt-10"><div class="flex justify-between mb-6"><div><a class="text-green-800" href="{{.BackURL}}">← Back</a><h1 class="text-3xl font-bold mt-2">{{.Company.Name}} members</h1></div></div>{{if .Success}}<div class="card p-3 mb-4 border-green-700">{{.Success}}</div>{{end}}{{if .Error}}<div class="card p-3 mb-4 border-red-400 text-red-700">{{.Error}}</div>{{end}}<form action="/api/companies/{{.Company.ID}}/members" method="post" class="card p-4 grid md:grid-cols-[1fr_170px_auto] gap-3 mb-6">{{if .WorkspaceContextID}}<input type="hidden" name="workspace_id" value="{{.WorkspaceContextID}}">{{end}}<input class="input" name="identifier" placeholder="Email or username" required><select class="input" name="role"><option>MEMBER</option><option>GUEST</option>{{if eq .CompanyRole "OWNER"}}<option>ADMIN</option><option>OWNER</option>{{end}}</select><button class="btn primary">Add member</button></form><div class="card divide-y">{{range .Members}}<div class="p-4 flex justify-between gap-4"><div><strong>{{.Name}}</strong><div class="muted text-sm">@{{.Username}} · {{.Email}}</div></div><div class="flex gap-4"><span>{{.Role}}</span><a class="text-green-800" href="/companies/{{$.Company.ID}}/members/{{.UserID}}/edit{{if $.WorkspaceContextID}}?workspace={{$.WorkspaceContextID}}{{end}}">Edit</a></div></div>{{else}}<p class="p-6 muted">No members.</p>{{end}}</div><div class="mt-5 flex justify-between text-sm"><span>{{.Total}} members</span><div class="flex gap-3">{{if .HasPrev}}<a href="?page={{.PrevPage}}{{if .WorkspaceContextID}}&workspace={{.WorkspaceContextID}}{{end}}">Previous</a>{{end}}<span>Page {{.Page}}</span>{{if .HasNext}}<a href="?page={{.NextPage}}{{if .WorkspaceContextID}}&workspace={{.WorkspaceContextID}}{{end}}">Next</a>{{end}}</div></div></main></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Company members - Messenger</title>
+    {{ template "messengerHead" . }}
+  </head>
+  <body class="min-h-screen">
+    <main class="max-w-5xl mx-auto p-6 pt-10">
+      <div class="flex justify-between mb-6">
+        <div>
+          <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
+          <h1 class="text-3xl font-bold mt-2">{{ .Company.Name }} members</h1>
+        </div>
+      </div>
+      {{ if .Success }}
+        <div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>
+      {{ end }}{{ if .Error }}
+        <div class="card p-3 mb-4 border-red-400 text-red-700">
+          {{ .Error }}
+        </div>
+      {{ end }}
+      <form
+        action="/api/companies/{{ .Company.ID }}/members"
+        method="post"
+        class="card p-4 grid md:grid-cols-[1fr_170px_auto] gap-3 mb-6"
+      >
+        {{ if .WorkspaceContextID }}
+          <input
+            type="hidden"
+            name="workspace_id"
+            value="{{ .WorkspaceContextID }}"
+          />
+        {{ end }}<input
+          class="input"
+          name="identifier"
+          placeholder="Email or username"
+          required
+        /><select class="input" name="role">
+          <option>MEMBER</option>
+          <option>GUEST</option>
+          {{ if eq .CompanyRole "OWNER" }}
+            <option>ADMIN</option>
+            <option>OWNER</option>
+          {{ end }}</select
+        ><button class="btn primary">Add member</button>
+      </form>
+      <div class="card divide-y">
+        {{ range .Members }}
+          <div class="p-4 flex justify-between gap-4">
+            <div>
+              <strong>{{ .Name }}</strong>
+              <div class="muted text-sm">@{{ .Username }} · {{ .Email }}</div>
+            </div>
+            <div class="flex gap-4">
+              <span>{{ .Role }}</span
+              ><a
+                class="text-green-800"
+                href="/companies/{{ $.Company.ID }}/members/{{ .UserID }}/edit{{ if $.WorkspaceContextID }}
+                  ?workspace={{ $.WorkspaceContextID }}
+                {{ end }}"
+                >Edit</a
+              >
+            </div>
+          </div>
+        {{ else }}
+          <p class="p-6 muted">No members.</p>
+        {{ end }}
+      </div>
+      <div class="mt-5 flex justify-between text-sm">
+        <span>{{ .Total }} members</span>
+        <div class="flex gap-3">
+          {{ if .HasPrev }}
+            <a
+              href="?page={{ .PrevPage }}{{ if .WorkspaceContextID }}
+                &workspace={{ .WorkspaceContextID }}
+              {{ end }}"
+              >Previous</a
+            >
+          {{ end }}<span>Page {{ .Page }}</span>{{ if .HasNext }}
+            <a
+              href="?page={{ .NextPage }}{{ if .WorkspaceContextID }}
+                &workspace={{ .WorkspaceContextID }}
+              {{ end }}"
+              >Next</a
+            >
+          {{ end }}
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
