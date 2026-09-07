@@ -28,7 +28,6 @@ func TestViewsExecuteWithoutContextErrors(t *testing.T) {
 		if info.IsDir() || !strings.HasSuffix(path, ".html") {
 			return nil
 		}
-
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -43,7 +42,6 @@ func TestViewsExecuteWithoutContextErrors(t *testing.T) {
 		} else {
 			pageTemplates = append(pageTemplates, name)
 		}
-
 		_, err = templ.New(name).Parse(string(content))
 		return err
 	})
@@ -54,170 +52,48 @@ func TestViewsExecuteWithoutContextErrors(t *testing.T) {
 	assertLayoutFragments(t, viewsDir)
 
 	now := time.Date(2026, time.September, 7, 12, 0, 0, 0, time.UTC)
-	description := "Description"
 	title := "Notification"
-	actionURL := "/workspaces/workspace-1"
-
-	workspace := WorkspaceView{
-		ID:          "workspace-1",
-		CompanyID:   "company-1",
-		CompanyName: "Company",
-		Name:        "Workspace",
-		Slug:        "workspace",
-		Status:      "ACTIVE",
-		Role:        "OWNER",
-		CompanyRole: "OWNER",
-	}
-	chat := ChatView{
-		ID:          "chat-1",
-		ChannelID:   "channel-1",
-		Name:        "General",
-		Description: "General channel",
-		Type:        "CHANNEL",
-	}
-	member := MemberView{
-		ID:       "member-1",
-		UserID:   "user-1",
-		Name:     "User",
-		Username: "user",
-		Email:    "user@example.com",
-		Role:     "OWNER",
-		Status:   "ACTIVE",
-	}
+	actionURL := "/companies/company-1"
+	chat := ChatView{ID: "chat-1", CompanyID: "company-1", Name: "General", Subscribed: true, MemberCount: 2}
+	member := MemberView{ID: "membership-1", UserID: "user-2", Name: "Other User", Username: "other", Email: "other@example.com", Role: "USER", Status: "ACTIVE"}
 
 	richData := ViewData{
 		AppVersion: "test",
 		Error:      "error",
 		Success:    "success",
-		BackURL:    "/",
+		BackURL:    "/companies",
 		User: models.User{
-			ID:          "user-1",
-			Name:        "User",
-			Username:    "user",
-			Email:       "user@example.com",
-			Status:      "ACTIVE",
-			SystemAdmin: true,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID: "user-1", Name: "User", Username: "user", Email: "user@example.com", Status: "ACTIVE", CreatedAt: now, UpdatedAt: now,
 		},
-		Company: models.Company{
-			ID:        "company-1",
-			Name:      "Company",
-			Status:    "ACTIVE",
-			CreatedAt: now,
-			UpdatedAt: now,
+		DirectUser: models.User{
+			ID: "user-2", Name: "Other User", Username: "other", Email: "other@example.com", Status: "ACTIVE", CreatedAt: now, UpdatedAt: now,
 		},
-		Workspace: models.Workspace{
-			ID:        "workspace-1",
-			CompanyID: "company-1",
-			Name:      "Workspace",
-			Slug:      "workspace",
-			Status:    "ACTIVE",
-			CreatedAt: now,
-			UpdatedAt: now,
-		},
-		Channel: models.Channel{
-			ID:          "channel-1",
-			WorkspaceID: "workspace-1",
-			Name:        "general",
-			Description: &description,
-			Type:        "PUBLIC",
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		},
-		Role:                "OWNER",
-		CompanyRole:         "OWNER",
+		Company:             models.Company{ID: "company-1", Name: "Company", Status: "ACTIVE", CreatedAt: now, UpdatedAt: now},
+		CompanyRole:         "ADMIN",
 		CanManage:           true,
-		WorkspaceContextID:  "workspace-1",
 		UnreadNotifications: 1,
-		Workspaces:           []WorkspaceView{workspace},
-		CompanyWorkspaces: []CompanyWorkspaceView{{
-			ID:         "company-1",
-			Name:       "Company",
-			Status:     "ACTIVE",
-			Role:       "OWNER",
-			CanManage:  true,
-			Workspaces: []WorkspaceView{workspace},
-		}},
-		Channels: []ChannelView{{
-			ID:          "channel-1",
-			WorkspaceID: "workspace-1",
-			Name:        "general",
-			Description: "General channel",
-			Type:        "PUBLIC",
-			MemberCount: 1,
-		}},
-		Members: []MemberView{member},
-		Member:  member,
-		Notifications: []models.UserNotification{{
-			ID:        "notification-1",
-			UserID:    "user-1",
-			Type:      "MESSAGE",
-			Title:     &title,
-			Content:   "New message",
-			ActionURL: &actionURL,
-			CreatedAt: now,
-			UpdatedAt: now,
-		}},
-		Chats:       []ChatView{chat},
-		CurrentChat: chat,
+		Companies:           []CompanyView{{ID: "company-1", Name: "Company", Status: "ACTIVE", Role: "ADMIN", CanManage: true}},
+		Chats:               []ChatView{chat},
+		CurrentChat:         chat,
+		Members:             []MemberView{member},
+		Member:              member,
 		Messages: []MessageView{{
-			ID:        "message-1",
-			UserID:    "user-1",
-			UserName:  "User",
-			Content:   "Message content",
-			Type:      "TEXT",
-			CreatedAt: now,
-			EditedAt:  &now,
+			ID: "message-1", UserID: "user-1", UserName: "User", Content: "Hello", CreatedAt: now, EditedAt: &now,
 			Reactions: []ReactionView{{Reaction: "👍", Count: 1, Reacted: true}},
 		}},
-		AdminCompanies: []AdminCompanyView{{
-			ID:        "company-1",
-			Name:      "Company",
-			Status:    "ACTIVE",
-			UserCount: 1,
-			CreatedAt: now,
+		Notifications: []models.UserNotification{{
+			ID: "notification-1", UserID: "user-1", Type: "MESSAGE", Title: &title, Content: "New message", ActionURL: &actionURL, CreatedAt: now, UpdatedAt: now,
 		}},
-		AdminUsers: []AdminUserView{{
-			ID:           "user-1",
-			Name:         "User",
-			Username:     "user",
-			Email:        "user@example.com",
-			Status:       "ACTIVE",
-			SystemAdmin:  true,
-			CompanyCount: 1,
-			CreatedAt:    now,
-		}},
-		UserCompanies: []AdminUserCompanyView{{
-			CompanyID:   "company-1",
-			CompanyName: "Company",
-			Role:        "OWNER",
-		}},
-		Page:         2,
-		PrevPage:     1,
-		NextPage:     3,
-		Limit:        20,
-		Total:        21,
-		HasPrev:      true,
-		HasNext:      true,
-		Identifier:   "user",
-		Name:         "User",
-		Username:     "user",
-		Email:        "user@example.com",
-		Query:        "user",
-		StatusFilter: "ACTIVE",
-	}
-
-	cases := []struct {
-		name string
-		data ViewData
-	}{
-		{name: "empty", data: ViewData{}},
-		{name: "populated", data: richData},
+		ClientMessageID: "client-message-1",
+		Page:            2, PrevPage: 1, NextPage: 3, Limit: 20, Total: 21, HasPrev: true, HasNext: true,
+		Identifier: "user", Name: "User", Username: "user", Email: "user@example.com",
 	}
 
 	for _, templateName := range pageTemplates {
-		for _, tc := range cases {
+		for _, tc := range []struct {
+			name string
+			data ViewData
+		}{{"empty", ViewData{}}, {"populated", richData}} {
 			t.Run(templateName+"/"+tc.name, func(t *testing.T) {
 				data := tc.data
 				if err := templ.ExecuteTemplate(io.Discard, templateName, &data); err != nil {
@@ -230,7 +106,6 @@ func TestViewsExecuteWithoutContextErrors(t *testing.T) {
 
 func assertLayoutFragments(t *testing.T, viewsDir string) {
 	t.Helper()
-
 	top, err := os.ReadFile(filepath.Join(viewsDir, "components", "top.html"))
 	if err != nil {
 		t.Fatalf("read top layout fragment: %v", err)
@@ -239,10 +114,8 @@ func assertLayoutFragments(t *testing.T, viewsDir string) {
 	if err != nil {
 		t.Fatalf("read bottom layout fragment: %v", err)
 	}
-
 	topHTML := strings.ToLower(string(top))
 	bottomHTML := strings.ToLower(string(bottom))
-
 	if !strings.Contains(topHTML, "<body>") {
 		t.Fatal("top layout fragment must open <body>")
 	}

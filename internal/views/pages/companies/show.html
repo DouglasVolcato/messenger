@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head><title>{{ .Company.Name }} - Messenger</title>{{ template "messengerHead" . }}</head>
+<body class="min-h-screen">
+  <main class="max-w-6xl mx-auto p-6 pt-8">
+    <header class="flex flex-wrap justify-between gap-4 items-start mb-7">
+      <div>
+        <a class="text-green-800" href="/companies">← Companies</a>
+        <h1 class="text-3xl font-bold mt-2">{{ .Company.Name }}</h1>
+        <p class="muted">Your role: {{ .CompanyRole }}</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a class="btn soft" href="/notifications">Notifications{{ if .UnreadNotifications }} ({{ .UnreadNotifications }}){{ end }}</a>
+        {{ if .CanManage }}
+          <a class="btn soft" href="/companies/{{ .Company.ID }}/members">Manage users</a>
+          <a class="btn soft" href="/companies/{{ .Company.ID }}/settings">Company settings</a>
+          <a class="btn primary" href="/companies/{{ .Company.ID }}/chats/new">New chat</a>
+        {{ end }}
+      </div>
+    </header>
+    {{ if .Success }}<div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>{{ end }}
+    {{ if .Error }}<div class="card p-3 mb-4 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+
+    <div class="grid lg:grid-cols-[1.3fr_1fr] gap-6">
+      <section>
+        <div class="flex items-center justify-between mb-3"><h2 class="text-2xl font-bold">Chats</h2><span class="muted text-sm">Subscribe to join</span></div>
+        <div class="space-y-3">
+          {{ range .Chats }}
+            <article class="card p-5 flex flex-wrap justify-between gap-4 items-center">
+              <div>
+                <h3 class="font-bold text-lg">{{ .Name }}</h3>
+                <p class="muted text-sm">{{ .MemberCount }} subscribed users</p>
+              </div>
+              <div class="flex gap-2 items-center">
+                {{ if .Subscribed }}
+                  <a class="btn primary" href="/companies/{{ $.Company.ID }}/chats/{{ .ID }}">Open</a>
+                  <form action="/api/companies/{{ $.Company.ID }}/chats/{{ .ID }}/unsubscribe" method="post"><button class="btn soft">Unsubscribe</button></form>
+                {{ else }}
+                  <form action="/api/companies/{{ $.Company.ID }}/chats/{{ .ID }}/subscribe" method="post"><button class="btn primary">Subscribe</button></form>
+                {{ end }}
+              </div>
+            </article>
+          {{ else }}
+            <div class="card p-8 text-center muted">No chats have been created for this company.</div>
+          {{ end }}
+        </div>
+      </section>
+
+      <section>
+        <h2 class="text-2xl font-bold mb-3">People</h2>
+        <div class="card divide-y divide-stone-200">
+          {{ range .Members }}
+            <div class="p-4 flex justify-between gap-4 items-center">
+              <div class="min-w-0">
+                <div class="font-bold truncate">{{ .Name }}</div>
+                <div class="muted text-sm truncate">@{{ .Username }} · {{ .Role }}</div>
+              </div>
+              {{ if ne .UserID $.User.ID }}<a class="text-green-800 font-bold text-sm" href="/messages/users/{{ .UserID }}">Message</a>{{ end }}
+            </div>
+          {{ else }}
+            <div class="p-6 muted text-center">No users.</div>
+          {{ end }}
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

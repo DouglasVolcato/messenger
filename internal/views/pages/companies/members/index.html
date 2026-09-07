@@ -1,91 +1,36 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <title>Company members - Messenger</title>
-    {{ template "messengerHead" . }}
-  </head>
-  <body class="min-h-screen">
-    <main class="max-w-5xl mx-auto p-6 pt-10">
-      <div class="flex justify-between mb-6">
-        <div>
-          <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
-          <h1 class="text-3xl font-bold mt-2">{{ .Company.Name }} members</h1>
+<head><title>Company users - Messenger</title>{{ template "messengerHead" . }}</head>
+<body class="min-h-screen">
+<main class="max-w-5xl mx-auto p-6 pt-10">
+  <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
+  <h1 class="text-3xl font-bold mt-2">{{ .Company.Name }} users</h1>
+  <p class="muted mt-1 mb-6">Admins can update company data, manage company users and create chats.</p>
+  {{ if .Success }}<div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>{{ end }}
+  {{ if .Error }}<div class="card p-3 mb-4 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+
+  <form action="/api/companies/{{ .Company.ID }}/members" method="post" class="card p-5 mb-6 grid md:grid-cols-[1fr_180px_auto] gap-3 items-end">
+    <label>Username or email<input class="input mt-1" name="identifier" required /></label>
+    <label>Role<select class="input mt-1" name="role"><option value="USER">User</option><option value="ADMIN">Admin</option></select></label>
+    <button class="btn primary">Add user</button>
+  </form>
+
+  <div class="space-y-3">
+    {{ range .Members }}
+      <article class="card p-4 flex flex-wrap justify-between gap-4 items-center">
+        <div><strong>{{ .Name }}</strong><div class="muted text-sm">@{{ .Username }} · {{ .Email }}</div></div>
+        <div class="flex flex-wrap gap-2 items-center">
+          <form action="/api/companies/{{ $.Company.ID }}/members/{{ .UserID }}/role" method="post" class="flex gap-2">
+            <select class="input py-2" name="role"><option value="USER" {{ if eq .Role "USER" }}selected{{ end }}>User</option><option value="ADMIN" {{ if eq .Role "ADMIN" }}selected{{ end }}>Admin</option></select>
+            <button class="btn soft">Update</button>
+          </form>
+          <form action="/api/companies/{{ $.Company.ID }}/members/{{ .UserID }}/delete" method="post"><button class="btn soft text-red-700">Remove</button></form>
         </div>
-      </div>
-      {{ if .Success }}
-        <div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>
-      {{ end }}{{ if .Error }}
-        <div class="card p-3 mb-4 border-red-400 text-red-700">
-          {{ .Error }}
-        </div>
-      {{ end }}
-      <form
-        action="/api/companies/{{ .Company.ID }}/members"
-        method="post"
-        class="card p-4 grid md:grid-cols-[1fr_170px_auto] gap-3 mb-6"
-      >
-        {{ if .WorkspaceContextID }}
-          <input
-            type="hidden"
-            name="workspace_id"
-            value="{{ .WorkspaceContextID }}"
-          />
-        {{ end }}<input
-          class="input"
-          name="identifier"
-          placeholder="Email or username"
-          required
-        /><select class="input" name="role">
-          <option>MEMBER</option>
-          <option>GUEST</option>
-          {{ if eq .CompanyRole "OWNER" }}
-            <option>ADMIN</option>
-            <option>OWNER</option>
-          {{ end }}</select
-        ><button class="btn primary">Add member</button>
-      </form>
-      <div class="card divide-y">
-        {{ range .Members }}
-          <div class="p-4 flex justify-between gap-4">
-            <div>
-              <strong>{{ .Name }}</strong>
-              <div class="muted text-sm">@{{ .Username }} · {{ .Email }}</div>
-            </div>
-            <div class="flex gap-4">
-              <span>{{ .Role }}</span
-              ><a
-                class="text-green-800"
-                href="/companies/{{ $.Company.ID }}/members/{{ .UserID }}/edit{{ if $.WorkspaceContextID }}
-                  ?workspace={{ $.WorkspaceContextID }}
-                {{ end }}"
-                >Edit</a
-              >
-            </div>
-          </div>
-        {{ else }}
-          <p class="p-6 muted">No members.</p>
-        {{ end }}
-      </div>
-      <div class="mt-5 flex justify-between text-sm">
-        <span>{{ .Total }} members</span>
-        <div class="flex gap-3">
-          {{ if .HasPrev }}
-            <a
-              href="?page={{ .PrevPage }}{{ if .WorkspaceContextID }}
-                &workspace={{ .WorkspaceContextID }}
-              {{ end }}"
-              >Previous</a
-            >
-          {{ end }}<span>Page {{ .Page }}</span>{{ if .HasNext }}
-            <a
-              href="?page={{ .NextPage }}{{ if .WorkspaceContextID }}
-                &workspace={{ .WorkspaceContextID }}
-              {{ end }}"
-              >Next</a
-            >
-          {{ end }}
-        </div>
-      </div>
-    </main>
-  </body>
+      </article>
+    {{ else }}
+      <div class="card p-8 text-center muted">No company users.</div>
+    {{ end }}
+  </div>
+</main>
+</body>
 </html>

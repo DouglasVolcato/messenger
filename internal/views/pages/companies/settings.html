@@ -1,49 +1,16 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <title>Company settings - Messenger</title>
-    {{ template "messengerHead" . }}
-  </head>
-  <body class="min-h-screen">
-    <main class="max-w-2xl mx-auto p-6 pt-10">
-      <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
-      <h1 class="text-3xl font-bold mt-2 mb-2">Company settings</h1>
-      <p class="muted mb-6">{{ .Company.Name }}</p>
-      {{ if .Success }}
-        <div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>
-      {{ end }}{{ if .Error }}
-        <div class="card p-3 mb-4 border-red-400 text-red-700">
-          {{ .Error }}
-        </div>
-      {{ end }}
-      <form
-        action="/api/companies/{{ .Company.ID }}"
-        method="post"
-        class="card p-6 space-y-4"
-      >
-        {{ if .WorkspaceContextID }}
-          <input
-            type="hidden"
-            name="workspace_id"
-            value="{{ .WorkspaceContextID }}"
-          />
-        {{ end }}<label class="block"
-          >Company name<input
-            class="input mt-1"
-            name="name"
-            value="{{ .Company.Name }}"
-            required
-        /></label>
-        <div class="flex justify-between items-center">
-          <a
-            class="text-green-800"
-            href="/companies/{{ .Company.ID }}/members{{ if .WorkspaceContextID }}
-              ?workspace={{ .WorkspaceContextID }}
-            {{ end }}"
-            >Members</a
-          ><button class="btn primary">Save</button>
-        </div>
-      </form>
-    </main>
-  </body>
+<head><title>Company settings - Messenger</title>{{ template "messengerHead" . }}</head>
+<body class="min-h-screen">
+<main class="max-w-2xl mx-auto p-6 pt-10">
+  <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
+  <h1 class="text-3xl font-bold mt-2 mb-6">Company settings</h1>
+  {{ if .Success }}<div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>{{ end }}
+  {{ if .Error }}<div class="card p-3 mb-4 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+  <form action="/api/companies/{{ .Company.ID }}" method="post" class="card p-6 space-y-4">
+    <label class="block">Name<input class="input mt-1" name="name" value="{{ .Company.Name }}" required /></label>
+    <div class="flex justify-between items-center"><a class="text-green-800" href="/companies/{{ .Company.ID }}/members">Manage users</a><button class="btn primary">Save changes</button></div>
+  </form>
+</main>
+</body>
 </html>

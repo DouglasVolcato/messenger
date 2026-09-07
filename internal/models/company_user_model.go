@@ -24,7 +24,7 @@ func (cu *CompanyUser) Create(tx *sql.Tx, ctx context.Context) error {
 	}
 	cu.ID = id
 	if cu.Role == "" {
-		cu.Role = "MEMBER"
+		cu.Role = "USER"
 	}
 
 	if err := tx.QueryRowContext(ctx, `
@@ -39,7 +39,7 @@ func (cu *CompanyUser) Create(tx *sql.Tx, ctx context.Context) error {
 	var companyName string
 	if err := tx.QueryRowContext(ctx, `SELECT name FROM companies WHERE id = $1`, cu.CompanyID).Scan(&companyName); err == nil {
 		title := "Company access"
-		actionURL := "/workspaces"
+		actionURL := "/companies/" + cu.CompanyID
 		notification := UserNotification{
 			UserID:    cu.UserID,
 			Type:      "COMPANY_MEMBERSHIP",
@@ -79,35 +79,4 @@ func (cu *CompanyUser) GetOneByCompanyAndUser(db *sql.DB, ctx context.Context) e
 		FROM company_users
 		WHERE company_id = $1 AND user_id = $2`, cu.CompanyID, cu.UserID,
 	).Scan(&cu.ID, &cu.CompanyID, &cu.UserID, &cu.Role, &cu.CreatedAt, &cu.UpdatedAt)
-}
-
-func (cu *CompanyUser) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]CompanyUser, int64, error) {
-	if page < 1 {
-		page = 1
-	}
-	if limit < 1 {
-		limit = 50
-	}
-	if limit > 100 {
-		limit = 100
-	}
-	offset := (page - 1) * limit
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, company_id, user_id, role, created_at, updated_at, COUNT(*) OVER() AS total
-		FROM company_users WHERE company_id = $1
-		ORDER BY created_at DESC, id DESC LIMIT $2 OFFSET $3`, cu.CompanyID, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	items := make([]CompanyUser, 0)
-	var total int64
-	for rows.Next() {
-		var item CompanyUser
-		if err := rows.Scan(&item.ID, &item.CompanyID, &item.UserID, &item.Role, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
-			return nil, 0, err
-		}
-		items = append(items, item)
-	}
-	return items, total, rows.Err()
 }

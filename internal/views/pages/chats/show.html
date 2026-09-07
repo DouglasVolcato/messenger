@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head><title>{{ .CurrentChat.Name }} - Messenger</title>{{ template "messengerHead" . }}</head>
+<body class="min-h-screen">
+  <div class="min-h-screen grid md:grid-cols-[250px_1fr]">
+    <aside class="soft p-5 border-r border-stone-300 flex flex-col">
+      <div>
+        <a class="font-bold text-xl text-green-800" href="/companies/{{ .Company.ID }}">Messenger</a>
+        <div class="mt-5"><div class="font-bold">{{ .Company.Name }}</div><div class="muted text-xs">{{ .CompanyRole }}</div></div>
+        <a class="btn bg-white mt-3 w-full" href="/companies/{{ .Company.ID }}">Company home</a>
+        <div class="mt-7"><div class="font-bold">{{ .CurrentChat.Name }}</div><div class="muted text-sm">{{ .CurrentChat.MemberCount }} subscribed users</div></div>
+      </div>
+      <div class="mt-auto pt-8 space-y-2 text-sm">
+        <a class="block text-green-800" href="/notifications">Notifications{{ if .UnreadNotifications }} ({{ .UnreadNotifications }}){{ end }}</a>
+        <a class="block text-green-800" href="/settings/profile">Profile</a>
+        <a class="block muted" href="/logout">Logout</a>
+      </div>
+    </aside>
+    <main class="flex flex-col min-h-screen">
+      <header class="border-b border-stone-300 p-5"><h1 class="text-2xl font-bold">{{ .CurrentChat.Name }}</h1></header>
+      {{ if .Success }}<div class="m-4 mb-0 card p-3 border-green-700">{{ .Success }}</div>{{ end }}
+      {{ if .Error }}<div class="m-4 mb-0 card p-3 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+      <section class="flex-1 p-6 space-y-6 overflow-y-auto">
+        {{ range .Messages }}
+          {{ $message := . }}
+          <article id="message-{{ .ID }}" class="max-w-2xl scroll-mt-4">
+            <div class="flex gap-2 items-baseline"><strong>{{ .UserName }}</strong><span class="text-xs muted">{{ .CreatedAt.Format "02 Jan 15:04" }}</span></div>
+            {{ if .DeletedAt }}
+              <p class="muted italic mt-1">Message removed</p>
+            {{ else }}
+              <p class="mt-1 whitespace-pre-wrap">{{ .Content }}{{ if .EditedAt }} <span class="text-xs muted">edited</span>{{ end }}</p>
+              {{ if .Reactions }}<div class="flex flex-wrap gap-1 mt-2 text-xs">{{ range .Reactions }}<form action="/api/messages/{{ $message.ID }}/reactions" method="post"><input type="hidden" name="reaction" value="{{ .Reaction }}" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="rounded-full border px-2 py-1 {{ if .Reacted }}bg-white border-green-700{{ end }}">{{ .Reaction }} {{ .Count }}</button></form>{{ end }}</div>{{ end }}
+              <div class="flex flex-wrap gap-3 mt-2 text-xs items-start">
+                <details><summary class="cursor-pointer text-green-800">React</summary><div class="flex gap-1 mt-1"><form action="/api/messages/{{ .ID }}/reactions" method="post"><input type="hidden" name="reaction" value="👍" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">👍</button></form><form action="/api/messages/{{ .ID }}/reactions" method="post"><input type="hidden" name="reaction" value="❤️" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">❤️</button></form><form action="/api/messages/{{ .ID }}/reactions" method="post"><input type="hidden" name="reaction" value="😂" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">😂</button></form></div></details>
+                {{ if eq .UserID $.User.ID }}
+                  <details><summary class="cursor-pointer text-green-800">Edit</summary><form action="/api/messages/{{ .ID }}" method="post" class="mt-1 space-y-1"><textarea class="input" name="content" rows="2">{{ .Content }}</textarea><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="text-green-800 font-bold">Save</button></form></details>
+                  <form action="/api/messages/{{ .ID }}/delete" method="post"><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="text-red-700">Delete</button></form>
+                {{ end }}
+              </div>
+            {{ end }}
+          </article>
+        {{ else }}<p class="muted">No messages yet.</p>{{ end }}
+      </section>
+      <form action="/api/chats/{{ .CurrentChat.ID }}/messages" method="post" class="border-t border-stone-300 p-4 flex gap-3">
+        <input type="hidden" name="client_message_id" value="{{ .ClientMessageID }}" />
+        <input class="input" name="content" placeholder="Message {{ .CurrentChat.Name }}" autocomplete="off" required /><button class="btn primary">Send</button>
+      </form>
+    </main>
+  </div>
+</body>
+</html>
