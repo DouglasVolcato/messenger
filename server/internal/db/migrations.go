@@ -9,10 +9,12 @@ import (
 	"time"
 )
 
+const migrationAdvisoryLockID int64 = 742019384
+
 func RunMigrations() error {
 	migrationsDirectory := os.Getenv("MIGRATIONS_DIR")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	files, err := os.ReadDir(migrationsDirectory)
@@ -25,6 +27,12 @@ func RunMigrations() error {
 		return err
 	}
 	defer tx.Rollback()
+
+	// Multiple server replicas can start at the same time. Serialize migrations
+	// inside PostgreSQL so only one replica applies schema changes at a time.
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", migrationAdvisoryLockID); err != nil {
+		return err
+	}
 
 	_, err = tx.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS migrations (
@@ -52,7 +60,6 @@ func RunMigrations() error {
 		).Scan(&id)
 
 		if err == nil {
-			// Migração já executada
 			continue
 		}
 
