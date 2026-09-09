@@ -14,8 +14,23 @@ import (
 	"github.com/subosito/gotenv"
 )
 
+func loadEnvironment() error {
+	// Docker Compose injects environment variables directly, so a .env file must
+	// not be mandatory at runtime. For local development, support both a .env
+	// inside server/ and the repository-level ../.env file.
+	for _, path := range []string{".env", "../.env"} {
+		if _, err := os.Stat(path); err == nil {
+			return gotenv.Load(path)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func main() {
-	if err := gotenv.Load(); err != nil {
+	if err := loadEnvironment(); err != nil {
 		panic(err)
 	}
 	if err := db.InitDB(); err != nil {
