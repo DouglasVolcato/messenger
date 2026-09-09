@@ -7,7 +7,7 @@ This directory contains the infrastructure used by `docker-compose.yml` for the 
 | Service | Purpose | Host port |
 | --- | --- | --- |
 | `load-balancer` | Nginx reverse proxy/load balancer for HTTP server replicas | `80` |
-| `server` | Main Go application built from the repository Dockerfile | internal `8080` |
+| `server` | Main Go application built from `server/Dockerfile` with `server/` as its Docker build context | internal `8080` |
 | `postgres` | Primary durable database with logical replication enabled | `5432` |
 | `redis` | Cache/connection-registry candidate and local CDC Redis Streams sink | `6379` |
 | `rabbitmq` | Processing/event queues | `5672` |
@@ -20,11 +20,19 @@ Exporter containers expose PostgreSQL, Redis and Nginx metrics to Prometheus. Ra
 
 ## Start
 
-Create the local environment file once:
+Create the repository-level environment file once:
 
 ```bash
 cp .env.example .env
 ```
+
+Docker Compose reads that file for variable interpolation and also injects it into the `server` process through `env_file`. The server container does not need the `.env` file mounted into its filesystem.
+
+Compose intentionally overrides container-specific values that must use Docker networking:
+
+- `PORT=8080` inside the `server` container
+- `DB_URL` points to the `postgres` service instead of `localhost`
+- `MIGRATIONS_DIR=migrations`, matching the path copied by `server/Dockerfile`
 
 Then start the stack:
 
@@ -40,6 +48,17 @@ Open:
 - Grafana: `http://localhost:3000`
 
 The default local Grafana credentials come from `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`.
+
+## Running the server outside Compose
+
+The Go server can still be run directly from its own module directory:
+
+```bash
+cd server
+go run ./cmd/api
+```
+
+At startup it looks for `server/.env` first and then the repository-level `../.env`. If neither file exists, it simply uses environment variables already provided by the process/container.
 
 ## Server metrics
 
@@ -63,7 +82,9 @@ docker compose up --build --scale server=3
 
 Nginx uses Docker DNS and automatic upstream hostname re-resolution. New server replica addresses can therefore be discovered without hard-coding container IPs.
 
-The WebSocket service is intentionally not defined yet. When it exists, keep its upstream and scaling policy separate from the HTTP server because long-lived connections have different resource characteristics.
+Server startup migrations use a PostgreSQL transaction-scoped advisory lock. If several replicas start together, only one applies schema migrations at a time; the others wait and then observe the recorded migration IDs.
+
+The WebSocket service is intentionally not defined yet. When it exists, keep its source and Dockerfile under a separate `websocket/` directory, give it its own Compose service/build context, and keep its Nginx upstream and scaling policy separate from the HTTP server because long-lived connections have different resource characteristics.
 
 ## CDC
 
