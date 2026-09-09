@@ -1,51 +1,156 @@
 <!doctype html>
 <html lang="en">
 <head><title>{{ .CurrentChat.Name }} - Messenger</title>{{ template "messengerHead" . }}</head>
-<body class="min-h-screen">
-  <div class="min-h-screen grid md:grid-cols-[250px_1fr]">
-    <aside class="soft p-5 border-r border-stone-300 flex flex-col">
-      <div>
+<body class="chat-page">
+  <div class="chat-shell">
+    <aside class="chat-sidebar">
+      <div class="chat-sidebar-header">
         <a class="font-bold text-xl text-green-800" href="/companies/{{ .Company.ID }}">Messenger</a>
-        <div class="mt-5"><div class="font-bold">{{ .Company.Name }}</div><div class="muted text-xs">{{ .CompanyRole }}</div></div>
-        <a class="btn bg-white mt-3 w-full" href="/companies/{{ .Company.ID }}">Company home</a>
-        <div class="mt-7"><div class="font-bold">{{ .CurrentChat.Name }}</div><div class="muted text-sm">{{ .CurrentChat.MemberCount }} subscribed users</div></div>
+        <div class="mt-4 min-w-0">
+          <div class="font-bold truncate">{{ .Company.Name }}</div>
+          <div class="muted text-xs">{{ .CompanyRole }}</div>
+        </div>
       </div>
-      <div class="mt-auto pt-8 space-y-2 text-sm">
-        <a class="block text-green-800" href="/notifications">Notifications{{ if .UnreadNotifications }} ({{ .UnreadNotifications }}){{ end }}</a>
-        <a class="block text-green-800" href="/settings/profile">Profile</a>
-        <a class="block muted" href="/logout">Logout</a>
+
+      <div class="chat-sidebar-body">
+        <div class="px-3 pt-1 pb-2 text-xs font-bold uppercase tracking-wide muted">Conversations</div>
+        <a class="chat-sidebar-item active" href="/companies/{{ .Company.ID }}/chats/{{ .CurrentChat.ID }}">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center justify-center rounded-full bg-green-800 text-white font-bold" style="width:42px;height:42px;flex:0 0 42px;">#</div>
+            <div class="min-w-0 flex-1">
+              <div class="font-bold truncate">{{ .CurrentChat.Name }}</div>
+              <div class="muted text-xs truncate">{{ .CurrentChat.MemberCount }} subscribed users</div>
+            </div>
+          </div>
+        </a>
+
+        <div class="mt-5 px-3 pt-1 pb-2 text-xs font-bold uppercase tracking-wide muted">Company</div>
+        <a class="chat-sidebar-item" href="/companies/{{ .Company.ID }}">
+          <div class="font-bold">Company home</div>
+          <div class="muted text-xs mt-1">Chats, people and subscriptions</div>
+        </a>
+        {{ if .CanManage }}
+          <a class="chat-sidebar-item" href="/companies/{{ .Company.ID }}/members">
+            <div class="font-bold">Manage users</div>
+            <div class="muted text-xs mt-1">Company administration</div>
+          </a>
+        {{ end }}
+      </div>
+
+      <div class="chat-sidebar-footer">
+        <div class="font-bold truncate">{{ .User.Name }}</div>
+        <div class="muted text-xs truncate">@{{ .User.Username }}</div>
+        <div class="flex flex-wrap gap-3 mt-3 text-sm">
+          <a class="text-green-800 font-bold" href="/notifications">Notifications{{ if .UnreadNotifications }} ({{ .UnreadNotifications }}){{ end }}</a>
+          <a class="text-green-800 font-bold" href="/settings/profile">Profile</a>
+          <a class="muted" href="/logout">Logout</a>
+        </div>
       </div>
     </aside>
-    <main class="flex flex-col min-h-screen">
-      <header class="border-b border-stone-300 p-5"><h1 class="text-2xl font-bold">{{ .CurrentChat.Name }}</h1></header>
-      {{ if .Success }}<div class="m-4 mb-0 card p-3 border-green-700">{{ .Success }}</div>{{ end }}
-      {{ if .Error }}<div class="m-4 mb-0 card p-3 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
-      <section class="flex-1 p-6 space-y-6 overflow-y-auto">
+
+    <main class="chat-main">
+      <header class="chat-header">
+        <div class="flex items-center gap-3 min-w-0">
+          <a class="chat-mobile-back" href="/companies/{{ .Company.ID }}" aria-label="Back to company">←</a>
+          <div class="flex items-center justify-center rounded-full bg-green-800 text-white font-bold" style="width:42px;height:42px;flex:0 0 42px;">#</div>
+          <div class="min-w-0">
+            <h1 class="font-bold text-lg truncate">{{ .CurrentChat.Name }}</h1>
+            <div class="muted text-xs truncate">{{ .Company.Name }} · {{ .CurrentChat.MemberCount }} subscribed users</div>
+          </div>
+        </div>
+        <a class="hidden md:inline text-green-800 font-bold text-sm" href="/companies/{{ .Company.ID }}">Company home</a>
+      </header>
+
+      {{ if or .Success .Error }}
+        <div class="chat-alerts">
+          {{ if .Success }}<div class="card p-3 border-green-700">{{ .Success }}</div>{{ end }}
+          {{ if .Error }}<div class="card p-3 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+        </div>
+      {{ end }}
+
+      <section id="chat-messages" class="chat-messages">
         {{ range .Messages }}
           {{ $message := . }}
-          <article id="message-{{ .ID }}" class="max-w-2xl scroll-mt-4">
-            <div class="flex gap-2 items-baseline"><strong>{{ .UserName }}</strong><span class="text-xs muted">{{ .CreatedAt.Format "02 Jan 15:04" }}</span></div>
-            {{ if .DeletedAt }}
-              <p class="muted italic mt-1">Message removed</p>
-            {{ else }}
-              <p class="mt-1 whitespace-pre-wrap">{{ .Content }}{{ if .EditedAt }} <span class="text-xs muted">edited</span>{{ end }}</p>
-              {{ if .Reactions }}<div class="flex flex-wrap gap-1 mt-2 text-xs">{{ range .Reactions }}<form action="/api/messages/reactions/{{ $message.ID }}" method="post"><input type="hidden" name="reaction" value="{{ .Reaction }}" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="rounded-full border px-2 py-1 {{ if .Reacted }}bg-white border-green-700{{ end }}">{{ .Reaction }} {{ .Count }}</button></form>{{ end }}</div>{{ end }}
-              <div class="flex flex-wrap gap-3 mt-2 text-xs items-start">
-                <details><summary class="cursor-pointer text-green-800">React</summary><div class="flex gap-1 mt-1"><form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="👍" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">👍</button></form><form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="❤️" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">❤️</button></form><form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="😂" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">😂</button></form></div></details>
-                {{ if eq .UserID $.User.ID }}
-                  <details><summary class="cursor-pointer text-green-800">Edit</summary><form hx-patch="/api/messages/{{ .ID }}" class="mt-1 space-y-1"><textarea class="input" name="content" rows="2">{{ .Content }}</textarea><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="text-green-800 font-bold">Save</button></form></details>
-                  <form hx-delete="/api/messages/{{ .ID }}?return_to=/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}"><button class="text-red-700">Delete</button></form>
+          <div class="chat-message-row {{ if eq .UserID $.User.ID }}own{{ end }}">
+            <article id="message-{{ .ID }}" class="chat-bubble scroll-mt-4">
+              <span class="chat-bubble-author">{{ .UserName }}</span>
+
+              {{ if .DeletedAt }}
+                <p class="muted italic">Message removed</p>
+              {{ else }}
+                <p class="whitespace-pre-wrap break-words">{{ .Content }}</p>
+
+                {{ if .Reactions }}
+                  <div class="chat-reactions">
+                    {{ range .Reactions }}
+                      <form action="/api/messages/reactions/{{ $message.ID }}" method="post">
+                        <input type="hidden" name="reaction" value="{{ .Reaction }}" />
+                        <input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" />
+                        <button class="rounded-full border px-2 py-1 text-xs {{ if .Reacted }}bg-white border-green-700{{ end }}">{{ .Reaction }} {{ .Count }}</button>
+                      </form>
+                    {{ end }}
+                  </div>
                 {{ end }}
+
+                <div class="chat-actions">
+                  <details>
+                    <summary class="cursor-pointer text-green-800">React</summary>
+                    <div class="flex gap-1 mt-1">
+                      <form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="👍" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">👍</button></form>
+                      <form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="❤️" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">❤️</button></form>
+                      <form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="😂" /><input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" /><button class="border rounded px-2 py-1">😂</button></form>
+                    </div>
+                  </details>
+                  {{ if eq .UserID $.User.ID }}
+                    <details>
+                      <summary class="cursor-pointer text-green-800">Edit</summary>
+                      <form hx-patch="/api/messages/{{ .ID }}" class="mt-1 space-y-1" style="min-width:240px;">
+                        <textarea class="input" name="content" rows="2">{{ .Content }}</textarea>
+                        <input type="hidden" name="return_to" value="/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}" />
+                        <button class="text-green-800 font-bold">Save</button>
+                      </form>
+                    </details>
+                    <form hx-delete="/api/messages/{{ .ID }}?return_to=/companies/{{ $.Company.ID }}/chats/{{ $.CurrentChat.ID }}">
+                      <button class="text-red-700">Delete</button>
+                    </form>
+                  {{ end }}
+                </div>
+              {{ end }}
+
+              <div class="chat-bubble-meta">
+                <span>{{ if eq .UserID $.User.ID }}You{{ else }}{{ .UserName }}{{ end }}</span>
+                <span>{{ .CreatedAt.Format "15:04" }}{{ if .EditedAt }} · edited{{ end }}</span>
               </div>
-            {{ end }}
-          </article>
-        {{ else }}<p class="muted">No messages yet.</p>{{ end }}
+            </article>
+          </div>
+        {{ else }}
+          <div class="h-full flex items-center justify-center text-center px-6">
+            <div>
+              <div class="text-3xl mb-2">#</div>
+              <div class="font-bold">No messages yet</div>
+              <p class="muted text-sm mt-1">Start the conversation in {{ .CurrentChat.Name }}.</p>
+            </div>
+          </div>
+        {{ end }}
       </section>
-      <form action="/api/chats/{{ .CurrentChat.ID }}/messages" method="post" class="border-t border-stone-300 p-4 flex gap-3">
-        <input type="hidden" name="client_message_id" value="{{ .ClientMessageID }}" />
-        <input class="input" name="content" placeholder="Message {{ .CurrentChat.Name }}" autocomplete="off" required /><button class="btn primary">Send</button>
-      </form>
+
+      <div class="chat-composer">
+        <form action="/api/chats/{{ .CurrentChat.ID }}/messages" method="post">
+          <input type="hidden" name="client_message_id" value="{{ .ClientMessageID }}" />
+          <input class="input" name="content" placeholder="Message {{ .CurrentChat.Name }}" autocomplete="off" required />
+          <button class="btn primary" type="submit">Send</button>
+        </form>
+      </div>
     </main>
   </div>
+
+  <script>
+    (function () {
+      const messages = document.getElementById("chat-messages");
+      if (messages) {
+        messages.scrollTop = messages.scrollHeight;
+      }
+    })();
+  </script>
 </body>
 </html>
