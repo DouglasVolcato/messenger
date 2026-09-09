@@ -113,7 +113,7 @@ services:
   # PostgreSQL logical replication and writes change events to Redis Streams.
   # RabbitMQ remains reserved for the application's processing/event queues.
   cdc:
-    image: quay.io/debezium/server:3.0
+    image: quay.io/debezium/server:3.5
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-messager}
       POSTGRES_USER: ${POSTGRES_USER:-messager}
