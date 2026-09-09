@@ -121,6 +121,8 @@ services:
     volumes:
       - ./infra/cdc/application.properties:/debezium/conf/application.properties:ro
     depends_on:
+      server:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -141,12 +143,6 @@ services:
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
-    depends_on:
-      - server
-      - rabbitmq
-      - postgres-exporter
-      - redis-exporter
-      - nginx-exporter
     restart: unless-stopped
     networks:
       - messenger
