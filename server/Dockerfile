@@ -3,35 +3,34 @@
 # =====================================================================
 FROM golang:1.25-alpine AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy dependency manifests first to leverage Docker caching
+# Copy dependency manifests first to maximize Docker layer reuse.
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the application source code
+# The Compose build context is ./server, so these paths are all local to
+# the server project and remain independent from future sibling services.
 COPY . .
 
-# Build the binary statically (CGO disabled for compatibility with scratch)
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /out/messager ./cmd/api
 
 # =====================================================================
-# STAGE 2: Run the binary in a secure, minimal container
+# STAGE 2: Runtime image
 # =====================================================================
 FROM alpine:3.22
 
-# Set working directory in the final isolated environment
 WORKDIR /app
 
-# Copy the pre-compiled binary from the builder stage
-COPY --from=builder /out/messager ./messager
-COPY internal/views ./internal/views
-COPY migrations ./migrations
-COPY static ./static
+RUN addgroup -S app && adduser -S -G app app
 
-# Expose the application port (change 8080 to match your app)
+COPY --from=builder --chown=app:app /out/messager ./messager
+COPY --chown=app:app internal/views ./internal/views
+COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app static ./static
+
+USER app
+
 EXPOSE 8080
 
-# Run the binary
 ENTRYPOINT ["./messager"]

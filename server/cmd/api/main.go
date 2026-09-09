@@ -15,8 +15,15 @@ import (
 )
 
 func main() {
+	// Prefer process environment variables. For direct local execution, support
+	// either server/.env or the repository-root ../.env after the monorepo split.
 	if err := gotenv.Load(); err != nil {
-		panic(err)
+		if !os.IsNotExist(err) {
+			panic(err)
+		}
+		if parentErr := gotenv.Load("../.env"); parentErr != nil && !os.IsNotExist(parentErr) {
+			panic(parentErr)
+		}
 	}
 	if err := db.InitDB(); err != nil {
 		panic(err)
