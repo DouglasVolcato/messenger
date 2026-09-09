@@ -15,7 +15,9 @@ import (
 )
 
 func main() {
-	if err := gotenv.Load(); err != nil {
+	// Local development can still use a .env file, but containerized execution
+	// should work entirely from environment variables injected by Docker Compose.
+	if err := gotenv.Load(); err != nil && !os.IsNotExist(err) {
 		panic(err)
 	}
 	if err := db.InitDB(); err != nil {
