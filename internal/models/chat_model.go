@@ -9,13 +9,11 @@ import (
 )
 
 type Chat struct {
-	ID          string
-	WorkspaceID string
-	ChannelID   *string
-	Type        string
-	Name        *string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID        string
+	CompanyID string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (c *Chat) Create(tx *sql.Tx, ctx context.Context) error {
@@ -26,17 +24,17 @@ func (c *Chat) Create(tx *sql.Tx, ctx context.Context) error {
 	c.ID = id
 
 	return tx.QueryRowContext(ctx, `
-		INSERT INTO chats (id, workspace_id, channel_id, type, name)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO chats (id, company_id, name)
+		VALUES ($1, $2, $3)
 		RETURNING created_at, updated_at`,
-		c.ID, c.WorkspaceID, c.ChannelID, c.Type, c.Name,
+		c.ID, c.CompanyID, c.Name,
 	).Scan(&c.CreatedAt, &c.UpdatedAt)
 }
 
 func (c *Chat) Update(tx *sql.Tx, ctx context.Context) error {
 	return tx.QueryRowContext(ctx, `
-		UPDATE chats SET channel_id = $1, type = $2, name = $3 WHERE id = $4
-		RETURNING updated_at`, c.ChannelID, c.Type, c.Name, c.ID,
+		UPDATE chats SET name = $1 WHERE id = $2
+		RETURNING updated_at`, c.Name, c.ID,
 	).Scan(&c.UpdatedAt)
 }
 
@@ -47,9 +45,9 @@ func (c *Chat) Delete(tx *sql.Tx, ctx context.Context) error {
 
 func (c *Chat) GetOne(db *sql.DB, ctx context.Context) error {
 	return db.QueryRowContext(ctx, `
-		SELECT id, workspace_id, channel_id, type, name, created_at, updated_at
+		SELECT id, company_id, name, created_at, updated_at
 		FROM chats WHERE id = $1`, c.ID,
-	).Scan(&c.ID, &c.WorkspaceID, &c.ChannelID, &c.Type, &c.Name, &c.CreatedAt, &c.UpdatedAt)
+	).Scan(&c.ID, &c.CompanyID, &c.Name, &c.CreatedAt, &c.UpdatedAt)
 }
 
 func (c *Chat) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]Chat, int64, error) {
@@ -65,11 +63,11 @@ func (c *Chat) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]Chat
 	offset := (page - 1) * limit
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, workspace_id, channel_id, type, name, created_at, updated_at, COUNT(*) OVER() AS total
+		SELECT id, company_id, name, created_at, updated_at, COUNT(*) OVER() AS total
 		FROM chats
-		WHERE workspace_id = $1
-		ORDER BY created_at DESC, id DESC
-		LIMIT $2 OFFSET $3`, c.WorkspaceID, limit, offset)
+		WHERE company_id = $1
+		ORDER BY created_at ASC, id ASC
+		LIMIT $2 OFFSET $3`, c.CompanyID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -79,11 +77,10 @@ func (c *Chat) GetMany(db *sql.DB, ctx context.Context, page, limit int) ([]Chat
 	var total int64
 	for rows.Next() {
 		var item Chat
-		if err := rows.Scan(&item.ID, &item.WorkspaceID, &item.ChannelID, &item.Type, &item.Name, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
+		if err := rows.Scan(&item.ID, &item.CompanyID, &item.Name, &item.CreatedAt, &item.UpdatedAt, &total); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, item)
 	}
-
 	return items, total, rows.Err()
 }

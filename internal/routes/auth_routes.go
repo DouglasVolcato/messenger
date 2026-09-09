@@ -14,7 +14,7 @@ import (
 func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion string) {
 	mux.Handle("GET /login", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := utils.GetUserFromCookie(r); err == nil {
-			utils.Redirect(w, r, "/workspaces")
+			utils.Redirect(w, r, "/companies")
 			return
 		}
 		utils.ExecuteTemplate(w, templ, "auth/login.html", &ViewData{AppVersion: appVersion})
@@ -25,7 +25,6 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
-
 		identifier := strings.TrimSpace(r.FormValue("identifier"))
 		user := models.User{Email: identifier}
 		err := user.GetOneByEmail(db.DB, r.Context())
@@ -34,24 +33,19 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			err = user.GetOneByUsername(db.DB, r.Context())
 		}
 		if err != nil || user.Status != "ACTIVE" || !utils.ComparePassword(user.PasswordHash, r.FormValue("password")) {
-			utils.ExecuteTemplate(w, templ, "auth/login.html", &ViewData{
-				AppVersion: appVersion,
-				Error:      "Invalid email, username or password.",
-				Identifier: identifier,
-			})
+			utils.ExecuteTemplate(w, templ, "auth/login.html", &ViewData{AppVersion: appVersion, Error: "Invalid email, username or password.", Identifier: identifier})
 			return
 		}
-
-		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID, SystemAdmin: user.SystemAdmin}); err != nil {
+		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID}); err != nil {
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, "/workspaces")
+		utils.Redirect(w, r, "/companies")
 	}))
 
 	mux.Handle("GET /register", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := utils.GetUserFromCookie(r); err == nil {
-			utils.Redirect(w, r, "/workspaces")
+			utils.Redirect(w, r, "/companies")
 			return
 		}
 		utils.ExecuteTemplate(w, templ, "auth/register.html", &ViewData{AppVersion: appVersion})
@@ -62,13 +56,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
-
-		data := &ViewData{
-			AppVersion: appVersion,
-			Name:       strings.TrimSpace(r.FormValue("name")),
-			Username:   strings.TrimSpace(r.FormValue("username")),
-			Email:      strings.TrimSpace(r.FormValue("email")),
-		}
+		data := &ViewData{AppVersion: appVersion, Name: strings.TrimSpace(r.FormValue("name")), Username: strings.TrimSpace(r.FormValue("username")), Email: strings.TrimSpace(r.FormValue("email"))}
 		if data.Name == "" || data.Username == "" || data.Email == "" || r.FormValue("password") == "" {
 			data.Error = "Fill in all required fields."
 			utils.ExecuteTemplate(w, templ, "auth/register.html", data)
@@ -79,18 +67,12 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			utils.ExecuteTemplate(w, templ, "auth/register.html", data)
 			return
 		}
-
 		tx, err := db.BeginTransaction(r.Context())
 		if err != nil {
 			http.Error(w, "could not start transaction", http.StatusInternalServerError)
 			return
 		}
-		user := models.User{
-			Name:     data.Name,
-			Username: data.Username,
-			Email:    data.Email,
-			Password: r.FormValue("password"),
-		}
+		user := models.User{Name: data.Name, Username: data.Username, Email: data.Email, Password: r.FormValue("password")}
 		if err := user.Create(tx, r.Context()); err != nil {
 			_ = db.RollbackTransaction(tx)
 			data.Error = "Username or email already in use."
@@ -101,12 +83,11 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			http.Error(w, "could not create account", http.StatusInternalServerError)
 			return
 		}
-
 		if err := utils.SetUserCookie(w, r, utils.UserInput{ID: user.ID}); err != nil {
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, "/workspaces")
+		utils.Redirect(w, r, "/companies")
 	}))
 
 	logout := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

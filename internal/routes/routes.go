@@ -14,30 +14,21 @@ type ViewData struct {
 	Success    string
 	BackURL    string
 
-	User      models.User
-	Company   models.Company
-	Workspace models.Workspace
-	Channel   models.Channel
+	User        models.User
+	Company     models.Company
+	CompanyRole string
+	CanManage   bool
+	DirectUser  models.User
 
-	Role                string
-	CompanyRole         string
-	CanManage           bool
-	WorkspaceContextID  string
 	UnreadNotifications int64
 
-	Workspaces        []WorkspaceView
-	CompanyWorkspaces []CompanyWorkspaceView
-	Channels          []ChannelView
-	Members           []MemberView
-	Member            MemberView
-	Notifications     []models.UserNotification
-	Chats             []ChatView
-	Messages          []MessageView
-	CurrentChat       ChatView
-
-	AdminCompanies []AdminCompanyView
-	AdminUsers     []AdminUserView
-	UserCompanies  []AdminUserCompanyView
+	Companies     []CompanyView
+	Chats         []ChatView
+	CurrentChat   ChatView
+	Members       []MemberView
+	Member        MemberView
+	Messages      []MessageView
+	Notifications []models.UserNotification
 
 	Page     int
 	PrevPage int
@@ -47,49 +38,27 @@ type ViewData struct {
 	HasPrev  bool
 	HasNext  bool
 
-	Identifier   string
-	Name         string
-	Username     string
-	Email        string
-	Query        string
-	StatusFilter string
+	ClientMessageID string
+	Identifier      string
+	Name            string
+	Username        string
+	Email           string
 }
 
-type CompanyWorkspaceView struct {
-	ID         string
-	Name       string
-	Status     string
-	Role       string
-	CanManage  bool
-	Workspaces []WorkspaceView
-}
-
-type WorkspaceView struct {
-	ID          string
-	CompanyID   string
-	CompanyName string
-	Name        string
-	Slug        string
-	Status      string
-	Role        string
-	CompanyRole string
-}
-
-type ChannelView struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	Description string
-	Type        string
-	MemberCount int64
+type CompanyView struct {
+	ID        string
+	Name      string
+	Status    string
+	Role      string
+	CanManage bool
 }
 
 type ChatView struct {
 	ID          string
-	ChannelID   string
+	CompanyID   string
 	Name        string
-	Description string
-	Type        string
+	Subscribed  bool
+	MemberCount int64
 }
 
 type ReactionView struct {
@@ -103,7 +72,7 @@ type MessageView struct {
 	UserID    string
 	UserName  string
 	Content   string
-	Type      string
+	Direct    bool
 	CreatedAt time.Time
 	EditedAt  *time.Time
 	DeletedAt *time.Time
@@ -120,39 +89,11 @@ type MemberView struct {
 	Status   string
 }
 
-type AdminCompanyView struct {
-	ID        string
-	Name      string
-	Status    string
-	UserCount int64
-	CreatedAt time.Time
-}
-
-type AdminUserView struct {
-	ID           string
-	Name         string
-	Username     string
-	Email        string
-	Status       string
-	SystemAdmin  bool
-	CompanyCount int64
-	CreatedAt    time.Time
-}
-
-type AdminUserCompanyView struct {
-	CompanyID   string
-	CompanyName string
-	Role        string
-}
-
 func RegisterRoutes(mux *http.ServeMux, templ *template.Template, appVersion string) {
 	RegisterPublicRoutes(mux, templ, appVersion)
 	RegisterAuthRoutes(mux, templ, appVersion)
-	RegisterWorkspaceRoutes(mux, templ, appVersion)
-	RegisterChannelRoutes(mux, templ, appVersion)
 	RegisterCompanyRoutes(mux, templ, appVersion)
 	RegisterNotificationRoutes(mux, templ, appVersion)
 	RegisterSettingsRoutes(mux, templ, appVersion)
 	RegisterMessageRoutes(mux, templ, appVersion)
-	RegisterAdminRoutes(mux, templ, appVersion)
 }

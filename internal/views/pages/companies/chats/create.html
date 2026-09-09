@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><title>New chat - Messenger</title>{{ template "messengerHead" . }}</head>
+<body class="min-h-screen">
+<main class="max-w-xl mx-auto p-6 pt-10">
+  <a class="text-green-800" href="{{ .BackURL }}">← Back</a>
+  <h1 class="text-3xl font-bold mt-2 mb-2">New chat</h1>
+  <p class="muted mb-6">Users can subscribe or unsubscribe from this chat on the company page.</p>
+  {{ if .Error }}<div class="card p-3 mb-4 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+  <form class="card p-6 space-y-4" action="/api/companies/{{ .Company.ID }}/chats" method="post">
+    <label class="block">Chat name<input class="input mt-1" name="name" required autofocus /></label>
+    <div class="flex justify-end"><button class="btn primary">Create chat</button></div>
+  </form>
+</main>
+</body>
+</html>

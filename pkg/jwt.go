@@ -9,12 +9,7 @@ import (
 )
 
 type UserInput struct {
-	ID          string `json:"id"`
-	Role        string `json:"role"`
-	WorkspaceID string `json:"workspace_id"`
-	CompanyID   string `json:"company_id"`
-	CompanyRole string `json:"company_role"`
-	SystemAdmin bool   `json:"system_admin"`
+	ID string `json:"id"`
 }
 
 func GenerateJWT(user UserInput) (string, error) {
@@ -24,13 +19,8 @@ func GenerateJWT(user UserInput) (string, error) {
 	}
 
 	claims := jwt.MapClaims{
-		"user_id":      user.ID,
-		"role":         user.Role,
-		"workspace_id": user.WorkspaceID,
-		"company_id":   user.CompanyID,
-		"company_role": user.CompanyRole,
-		"system_admin": user.SystemAdmin,
-		"exp":          time.Now().Add(24 * time.Hour).Unix(),
+		"user_id": user.ID,
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
@@ -60,22 +50,5 @@ func ValidateJWT(tokenString string) (*UserInput, error) {
 	if !ok || userID == "" {
 		return nil, errors.New("invalid user id")
 	}
-
-	user := &UserInput{ID: userID}
-	if value, ok := claims["role"].(string); ok {
-		user.Role = value
-	}
-	if value, ok := claims["workspace_id"].(string); ok {
-		user.WorkspaceID = value
-	}
-	if value, ok := claims["company_id"].(string); ok {
-		user.CompanyID = value
-	}
-	if value, ok := claims["company_role"].(string); ok {
-		user.CompanyRole = value
-	}
-	if value, ok := claims["system_admin"].(bool); ok {
-		user.SystemAdmin = value
-	}
-	return user, nil
+	return &UserInput{ID: userID}, nil
 }

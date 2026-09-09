@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Companies - Messenger</title>
+  {{ template "messengerHead" . }}
+</head>
+<body class="min-h-screen">
+  <main class="max-w-5xl mx-auto p-6 pt-10">
+    <header class="flex flex-wrap justify-between gap-4 items-start mb-8">
+      <div>
+        <h1 class="text-3xl font-bold">Your companies</h1>
+        <p class="muted mt-1">Choose a company to open its chats and people.</p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <a class="btn soft" href="/notifications">Notifications{{ if .UnreadNotifications }} ({{ .UnreadNotifications }}){{ end }}</a>
+        <a class="btn soft" href="/settings/profile">Profile</a>
+        <a class="btn primary" href="/companies/new">New company</a>
+        <a class="btn soft" href="/logout">Logout</a>
+      </div>
+    </header>
+    {{ if .Success }}<div class="card p-3 mb-4 border-green-700">{{ .Success }}</div>{{ end }}
+    {{ if .Error }}<div class="card p-3 mb-4 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
+    <section class="grid md:grid-cols-2 gap-4">
+      {{ range .Companies }}
+        <a class="card p-6 block hover:shadow-sm" href="/companies/{{ .ID }}">
+          <div class="flex justify-between gap-3 items-start">
+            <div>
+              <h2 class="text-xl font-bold">{{ .Name }}</h2>
+              <p class="muted text-sm mt-1">{{ .Role }}</p>
+            </div>
+            <span class="text-xs muted">{{ .Status }}</span>
+          </div>
+        </a>
+      {{ else }}
+        <div class="card p-8 md:col-span-2 text-center">
+          <p class="muted">You are not linked to a company yet.</p>
+          <a class="btn primary mt-4" href="/companies/new">Create your first company</a>
+        </div>
+      {{ end }}
+    </section>
+  </main>
+</body>
+</html>
