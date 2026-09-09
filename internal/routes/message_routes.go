@@ -320,7 +320,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		utils.Redirect(w, r, "/messages/users/"+target.ID+"#message-"+message.ID)
 	}))
 
-	mux.Handle("POST /api/messages/{messageID}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PATCH /api/messages/{messageID}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, ok := loadCurrentUser(w, r)
 		if !ok {
 			return
@@ -364,13 +364,9 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		utils.Redirect(w, r, safeReturnURL(r.FormValue("return_to"), "/companies")+"#message-"+message.ID)
 	}))
 
-	mux.Handle("POST /api/messages/{messageID}/delete", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("DELETE /api/messages/{messageID}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, ok := loadCurrentUser(w, r)
 		if !ok {
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			http.Error(w, "invalid form", http.StatusBadRequest)
 			return
 		}
 		message := models.Message{ID: r.PathValue("messageID")}
@@ -400,7 +396,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not delete message", http.StatusInternalServerError)
 			return
 		}
-		utils.Redirect(w, r, safeReturnURL(r.FormValue("return_to"), "/companies"))
+		utils.Redirect(w, r, safeReturnURL(r.URL.Query().Get("return_to"), "/companies"))
 	}))
 
 	mux.Handle("POST /api/messages/{messageID}/reactions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
