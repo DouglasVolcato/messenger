@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+tmp
+node_modules
+prometheus_data
+grafana_data
