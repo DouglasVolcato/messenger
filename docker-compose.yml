@@ -7,7 +7,8 @@ services:
       - .env
     environment:
       PORT: ${PORT:-8080}
-      DB_URL: ${DB_URL:-postgres://messager:messager@postgres:5432/messager?sslmode=disable}
+      # Override any host-local DB_URL from .env with the Docker network address.
+      DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-migrations}
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
       PASSWORD_SALT: ${PASSWORD_SALT:-local-development-salt}
