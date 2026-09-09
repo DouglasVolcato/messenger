@@ -87,12 +87,11 @@ services:
       - messenger
 
   rabbitmq:
-    image: rabbitmq:3.13-management
+    image: rabbitmq:4.3-management-alpine
+    hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-messager}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-messager}
-    command: >-
-      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
