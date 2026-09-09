@@ -1,0 +1,193 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"options": {"0": {"text": "DOWN"}, "1": {"text": "UP"}}, "type": "value"}
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 5, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "up{job=~\"server|nginx|postgres|redis|rabbitmq\"}",
+          "legendFormat": "{{job}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Core service health",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "id": 2,
+      "options": {
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "nginx_connections_active",
+          "legendFormat": "active connections",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Nginx active connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "id": 3,
+      "options": {
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(nginx_http_requests_total[1m])",
+          "legendFormat": "requests/s",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Nginx request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 13},
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {"editorMode": "code", "expr": "pg_up", "legendFormat": "PostgreSQL", "range": true, "refId": "A"}
+      ],
+      "title": "PostgreSQL exporter",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 8, "y": 13},
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {"editorMode": "code", "expr": "redis_up", "legendFormat": "Redis", "range": true, "refId": "A"}
+      ],
+      "title": "Redis exporter",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 7, "w": 8, "x": 16, "y": 13},
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {"editorMode": "code", "expr": "sum(rabbitmq_connections)", "legendFormat": "connections", "range": true, "refId": "A"}
+      ],
+      "title": "RabbitMQ connections",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "id": 7,
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {"editorMode": "code", "expr": "sum(rabbitmq_queue_messages_ready)", "legendFormat": "ready", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum(rabbitmq_queue_messages_unacked)", "legendFormat": "unacked", "range": true, "refId": "B"}
+      ],
+      "title": "RabbitMQ backlog",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "This becomes UP after the Go server exposes /metrics.",
+      "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "id": 8,
+      "options": {
+        "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {"editorMode": "code", "expr": "up{job=\"server\"}", "legendFormat": "server /metrics", "range": true, "refId": "A"}
+      ],
+      "title": "Server metrics target",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["messenger", "architecture", "local"],
+  "templating": {"list": []},
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Messenger - Local Architecture Overview",
+  "uid": "messenger-local-overview",
+  "version": 1,
+  "weekStart": ""
+}
