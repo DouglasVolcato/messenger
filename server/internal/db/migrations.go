@@ -12,7 +12,7 @@ import (
 func RunMigrations() error {
 	migrationsDirectory := os.Getenv("MIGRATIONS_DIR")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	files, err := os.ReadDir(migrationsDirectory)
@@ -25,6 +25,13 @@ func RunMigrations() error {
 		return err
 	}
 	defer tx.Rollback()
+
+	// Multiple server replicas may start at the same time. Serialize schema
+	// migrations at the database level so only one replica applies them while
+	// the others wait and then observe the recorded migration IDs.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(7346202609)`); err != nil {
+		return err
+	}
 
 	_, err = tx.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS migrations (
