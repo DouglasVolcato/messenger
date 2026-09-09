@@ -15,10 +15,15 @@ import (
 )
 
 func main() {
-	// Local development can still use a .env file, but containerized execution
-	// should work entirely from environment variables injected by Docker Compose.
-	if err := gotenv.Load(); err != nil && !os.IsNotExist(err) {
-		panic(err)
+	// Prefer process environment variables. For direct local execution, support
+	// either server/.env or the repository-root ../.env after the monorepo split.
+	if err := gotenv.Load(); err != nil {
+		if !os.IsNotExist(err) {
+			panic(err)
+		}
+		if parentErr := gotenv.Load("../.env"); parentErr != nil && !os.IsNotExist(parentErr) {
+			panic(parentErr)
+		}
 	}
 	if err := db.InitDB(); err != nil {
 		panic(err)
