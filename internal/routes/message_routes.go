@@ -399,7 +399,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		utils.Redirect(w, r, safeReturnURL(r.URL.Query().Get("return_to"), "/companies"))
 	}))
 
-	mux.Handle("POST /api/messages/{messageID}/reactions", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/messages/reactions/{messageID}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, ok := loadCurrentUser(w, r)
 		if !ok {
 			return
