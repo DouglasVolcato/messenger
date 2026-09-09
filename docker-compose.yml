@@ -6,15 +6,16 @@ services:
     env_file:
       - .env
     environment:
-      PORT: ${PORT:-8080}
+      # Keep the container port stable because Nginx and Prometheus address the
+      # service through Docker DNS at server:8080. NGINX_PORT controls the host
+      # entrypoint and can still be changed independently.
+      PORT: "8080"
       # Override any host-local DB_URL from .env with the Docker network address.
       DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
-      MIGRATIONS_DIR: ${MIGRATIONS_DIR:-migrations}
+      # Migrations are copied to /app/migrations by server/Dockerfile.
+      MIGRATIONS_DIR: migrations
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
       PASSWORD_SALT: ${PASSWORD_SALT:-local-development-salt}
-    volumes:
-      # The current application explicitly loads /app/.env at startup.
-      - ./.env:/app/.env:ro
     expose:
       - "8080"
     depends_on:
@@ -22,7 +23,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:${PORT:-8080}/ >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 10
