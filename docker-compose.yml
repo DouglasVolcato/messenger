@@ -121,7 +121,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-messager}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-messager}
     volumes:
-      - ./infra/cdc/application.properties:/debezium/conf/application.properties:ro
+      # Debezium Server 3.5 loads its main configuration from /debezium/config.
+      - ./infra/cdc/application.properties:/debezium/config/application.properties:ro
     depends_on:
       # The current server owns schema migrations, so CDC waits until at least
       # one healthy server replica has completed them.
