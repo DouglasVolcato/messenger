@@ -50,6 +50,17 @@ func (cu *CompanyUser) Create(tx *sql.Tx, ctx context.Context) error {
 		if err := notification.Create(tx, ctx); err != nil {
 			return err
 		}
+		notificationOutbox := UserNotificationOutbox{
+			UserID:    notification.UserID,
+			Type:      notification.Type,
+			Title:     notification.Title,
+			Content:   notification.Content,
+			ActionURL: notification.ActionURL,
+			Status:    "PENDING",
+		}
+		if err := notificationOutbox.Create(tx, ctx); err != nil {
+			return err
+		}
 	}
 	return nil
 }

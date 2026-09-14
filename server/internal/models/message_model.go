@@ -88,7 +88,17 @@ func (m *Message) Create(tx *sql.Tx, ctx context.Context) error {
 			Content:   senderName + " sent you a message.",
 			ActionURL: &actionURL,
 		}
-		return notification.Create(tx, ctx)
+		notification.Create(tx, ctx)
+
+		notificationOutbox := UserNotificationOutbox{
+			UserID:    *m.RecipientUserID,
+			Type:      "DIRECT_MESSAGE",
+			Title:     &title,
+			Content:   senderName + " sent you a message.",
+			ActionURL: &actionURL,
+			Status:    "PENDING",
+		}
+		notificationOutbox.Create(tx, ctx)
 	}
 
 	var companyID string
@@ -134,6 +144,17 @@ func (m *Message) Create(tx *sql.Tx, ctx context.Context) error {
 			ActionURL: &actionURL,
 		}
 		if err := notification.Create(tx, ctx); err != nil {
+			return err
+		}
+		notificationOutbox := UserNotificationOutbox{
+			UserID:    userID,
+			Type:      "CHAT_MESSAGE",
+			Title:     &title,
+			Content:   senderName + " sent a message in a chat you follow.",
+			ActionURL: &actionURL,
+			Status:    "PENDING",
+		}
+		if err := notificationOutbox.Create(tx, ctx); err != nil {
 			return err
 		}
 	}
