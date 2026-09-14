@@ -27,21 +27,26 @@ docker-compose.yml
 
 A future WebSocket service can follow the same pattern in a sibling `websocket/` directory with its own `go.mod` and Dockerfile.
 
-## Services
+## Services and network exposure
 
-| Service | Purpose | Host port |
+Only Nginx publishes a port on the Docker host. Every infrastructure dependency stays reachable only inside the `messenger` Docker network.
+
+| Service | Purpose | Network exposure |
 | --- | --- | --- |
-| `load-balancer` | Nginx reverse proxy/load balancer for HTTP server replicas | `80` |
+| `load-balancer` | Nginx reverse proxy/load balancer for HTTP server replicas | host `${NGINX_PORT:-80}` -> container `80` |
 | `server` | Main Go application built from `server/Dockerfile` | internal `8080` |
-| `postgres` | Primary durable database with logical replication enabled | `5432` |
-| `redis` | Cache/connection-registry candidate and local CDC Redis Streams sink | `6379` |
-| `rabbitmq` | Processing/event queues | `5672` |
-| RabbitMQ management | Queue administration UI | `15672` |
+| `postgres` | Primary durable database with logical replication enabled | internal `5432` |
+| `redis` | Cache/connection-registry candidate and local CDC Redis Streams sink | internal `6379` |
+| `rabbitmq` | Processing/event queues | internal `5672` |
+| RabbitMQ management | Queue administration UI | internal `15672` |
+| RabbitMQ metrics | Native Prometheus metrics | internal `15692` |
 | `cdc` | Debezium Server reading PostgreSQL logical replication | internal |
-| `prometheus` | Metrics collection | `9090` |
-| `grafana` | Dashboards | `3000` |
+| `prometheus` | Metrics collection | internal `9090` |
+| `grafana` | Dashboards | internal `3000` |
 
-Exporter containers expose PostgreSQL, Redis and Nginx metrics to Prometheus. RabbitMQ exposes Prometheus metrics through its native plugin, which Compose explicitly enables at startup.
+Exporter containers expose PostgreSQL, Redis and Nginx metrics only inside the Compose network. RabbitMQ exposes Prometheus metrics through its native plugin, also only inside that network.
+
+This avoids host-port collisions when several stacks or existing database services run on the same Coolify server.
 
 ## Environment handling
 
@@ -59,20 +64,25 @@ The application still supports loading `server/.env` when run directly for local
 
 The HTTP server always listens on internal port `8080` when started by Compose. Nginx and Prometheus therefore have a stable service address even if the host-side `.env` is later changed for direct local execution.
 
+`NGINX_PORT` controls the only host-published port. For example:
+
+```env
+NGINX_PORT=8088
+```
+
+publishes the application as `8088:80` without changing Nginx's internal listener.
+
 ## Start
 
 ```bash
 docker compose up --build
 ```
 
-Open:
+With the default environment, open the application through Nginx at `http://localhost`. If `NGINX_PORT` is changed, use that host port instead.
 
-- Application through Nginx: `http://localhost`
-- RabbitMQ management: `http://localhost:15672`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+RabbitMQ management, Prometheus, Grafana, PostgreSQL and Redis are intentionally not available directly from the host. Access them from inside the Docker network or add an explicit temporary/debug exposure when required.
 
-The default local Grafana credentials come from `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`.
+The default Grafana credentials come from `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`.
 
 ## Server build
 
