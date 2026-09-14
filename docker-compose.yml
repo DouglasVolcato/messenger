@@ -146,7 +146,9 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Mount the configuration directory instead of a single file. This avoids
+      # file-vs-directory bind mount failures on deployment platforms such as Coolify.
+      - ./infra/prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
     restart: unless-stopped
     networks:
