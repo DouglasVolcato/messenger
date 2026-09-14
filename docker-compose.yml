@@ -32,11 +32,11 @@ services:
       - messenger
 
   load-balancer:
-    image: nginx:1.28-alpine
+    build:
+      context: ./infra/nginx
+      dockerfile: Dockerfile
     ports:
       - "${NGINX_PORT:-80}:80"
-    volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       server:
         condition: service_healthy
@@ -115,14 +115,13 @@ services:
   # PostgreSQL logical replication and writes change events to Redis Streams.
   # RabbitMQ remains reserved for the application's processing/event queues.
   cdc:
-    image: quay.io/debezium/server:3.5
+    build:
+      context: ./infra/cdc
+      dockerfile: Dockerfile
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-messager}
       POSTGRES_USER: ${POSTGRES_USER:-messager}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-messager}
-    volumes:
-      # Debezium Server 3.5 loads its main configuration from /debezium/config.
-      - ./infra/cdc/application.properties:/debezium/config/application.properties:ro
     depends_on:
       # The current server owns schema migrations, so CDC waits until at least
       # one healthy server replica has completed them.
@@ -137,7 +136,9 @@ services:
       - messenger
 
   prometheus:
-    image: prom/prometheus:v2.54.1
+    build:
+      context: ./infra/prometheus
+      dockerfile: Dockerfile
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -146,16 +147,15 @@ services:
     expose:
       - "9090"
     volumes:
-      # Mount the configuration directory instead of a single file. This avoids
-      # file-vs-directory bind mount failures on deployment platforms such as Coolify.
-      - ./infra/prometheus:/etc/prometheus:ro
       - prometheus_data:/prometheus
     restart: unless-stopped
     networks:
       - messenger
 
   grafana:
-    image: grafana/grafana:11.2.2
+    build:
+      context: ./infra/grafana
+      dockerfile: Dockerfile
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -164,8 +164,6 @@ services:
       - "3000"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     restart: unless-stopped
