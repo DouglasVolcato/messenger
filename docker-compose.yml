@@ -142,6 +142,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-messager}
       POSTGRES_USER: ${POSTGRES_USER:-messager}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-messager}
+      DEBEZIUM_SINK_TYPE: redis
+      DEBEZIUM_SINK_REDIS_ADDRESS: redis:6379
     depends_on:
       # The current server owns schema migrations, so CDC waits until at least
       # one healthy server replica has completed them.
