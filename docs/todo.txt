@@ -1,10 +1,10 @@
 X docker compose with resources
 X deploy
 X server
-- dev env with externalized services
 X publisher worker
-- websocket
 X cache
+- websocket
 - websocket worker
 - notifications and dlqs
+- test with observability
 - kubernetes
