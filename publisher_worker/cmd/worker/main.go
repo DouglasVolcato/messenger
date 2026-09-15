@@ -16,6 +16,26 @@ import (
 
 const batchSize = 10
 
+func connectRabbitMQ(ctx context.Context, url string) (*rabbitmq.Publisher, error) {
+	if url == "" {
+		return nil, fmt.Errorf("RABBITMQ_URL is required")
+	}
+
+	for {
+		publisher, err := rabbitmq.NewPublisher(url)
+		if err == nil {
+			return publisher, nil
+		}
+
+		fmt.Fprintf(os.Stderr, "RabbitMQ unavailable: %v; retrying in 5s\n", err)
+		select {
+		case <-time.After(5 * time.Second):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
 func ProcessNotifications(ctx context.Context, publisher *rabbitmq.Publisher) error {
 	tx, err := db.BeginTransaction(ctx)
 	if err != nil {
@@ -40,6 +60,9 @@ func ProcessNotifications(ctx context.Context, publisher *rabbitmq.Publisher) er
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	if err := gotenv.Load(); err != nil {
 		if !os.IsNotExist(err) {
 			panic(err)
@@ -52,14 +75,14 @@ func main() {
 		panic(err)
 	}
 
-	publisher, err := rabbitmq.NewPublisher(os.Getenv("RABBITMQ_URL"))
+	publisher, err := connectRabbitMQ(ctx, os.Getenv("RABBITMQ_URL"))
 	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
 		panic(err)
 	}
 	defer publisher.Close()
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	for {
 		if err := ProcessNotifications(ctx, publisher); err != nil {
