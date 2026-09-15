@@ -32,6 +32,30 @@ services:
     networks:
       - messenger
 
+  websocket:
+    build:
+      context: ./websocket
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      PORT: 8081
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      REDIS_URL: redis://redis:6379
+    expose:
+      - "8081"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - messenger
+
   publisher-worker:
     build:
       context: ./publisher_worker

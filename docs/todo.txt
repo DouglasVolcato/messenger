@@ -3,7 +3,7 @@ X deploy
 X server
 X publisher worker
 X cache
-- websocket
+X websocket
 - websocket worker
 - notifications and dlqs
 - test with observability
