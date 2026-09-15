@@ -2,7 +2,7 @@ X docker compose with resources
 X deploy
 X server
 - dev env with externalized services
-- publisher worker
+X publisher worker
 - websocket
 - cache
 - websocket worker
