@@ -1,8 +1,10 @@
 package cache
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -16,9 +18,18 @@ func InitRedisClient() error {
 	}
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
-		return fmt.Errorf("Failed to parse Redis URL: %v", err)
+		return fmt.Errorf("failed to parse Redis URL: %w", err)
 	}
+
 	RDB = redis.NewClient(opt)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := RDB.Ping(ctx).Err(); err != nil {
+		_ = RDB.Close()
+		RDB = nil
+		return fmt.Errorf("failed to connect to Redis: %w", err)
+	}
+
 	return nil
 }
 
