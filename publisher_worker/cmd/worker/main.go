@@ -24,6 +24,7 @@ func connectRabbitMQ(ctx context.Context, url string) (*rabbitmq.Publisher, erro
 	for {
 		publisher, err := rabbitmq.NewPublisher(url)
 		if err == nil {
+			fmt.Fprintf(os.Stderr, "Connected to RabbitMQ at %s\n", url)
 			return publisher, nil
 		}
 
@@ -31,6 +32,7 @@ func connectRabbitMQ(ctx context.Context, url string) (*rabbitmq.Publisher, erro
 		select {
 		case <-time.After(5 * time.Second):
 		case <-ctx.Done():
+			fmt.Fprintf(os.Stderr, "context canceled while waiting for RabbitMQ: %v\n", ctx.Err())
 			return nil, ctx.Err()
 		}
 	}
