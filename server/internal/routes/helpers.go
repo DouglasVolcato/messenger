@@ -1,10 +1,14 @@
 package routes
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/models"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
@@ -16,26 +20,84 @@ func loadCurrentUser(w http.ResponseWriter, r *http.Request) (models.User, bool)
 		utils.Redirect(w, r, "/login")
 		return models.User{}, false
 	}
+	if user, err := cache.GetUserCache(r.Context(), session.ID); err == nil {
+		if user.Status == "ACTIVE" {
+			return *user, true
+		}
+		utils.ClearUserCookie(w, r)
+		utils.Redirect(w, r, "/login")
+		return models.User{}, false
+	}
 	user := models.User{ID: session.ID}
 	if err := user.GetOne(db.DB, r.Context()); err != nil || user.Status != "ACTIVE" {
 		utils.ClearUserCookie(w, r)
 		utils.Redirect(w, r, "/login")
 		return models.User{}, false
 	}
+	_ = cache.SetUserCache(r.Context(), user)
 	return user, true
 }
 
 func loadCompanyForUser(r *http.Request, companyID, userID string) (models.Company, string, error) {
-	var company models.Company
+	var company *models.Company
+	if cached, err := cache.GetCompanyCache(r.Context(), companyID); err == nil {
+		company = cached
+	}
+	if company == nil {
+		loaded := models.Company{ID: companyID}
+		if err := loaded.GetOne(db.DB, r.Context()); err != nil {
+			return models.Company{}, "", err
+		}
+		_ = cache.SetCompanyCache(r.Context(), loaded)
+		company = &loaded
+	}
+	if company.Status != "ACTIVE" {
+		return models.Company{}, "", sql.ErrNoRows
+	}
 	var role string
 	err := db.DB.QueryRowContext(r.Context(), `
-		SELECT c.id, c.name, c.status, c.created_at, c.updated_at, cu.role
-		FROM companies c
-		JOIN company_users cu ON cu.company_id = c.id
-		WHERE c.id = $1 AND cu.user_id = $2 AND c.status = 'ACTIVE'`,
-		companyID, userID,
-	).Scan(&company.ID, &company.Name, &company.Status, &company.CreatedAt, &company.UpdatedAt, &role)
-	return company, role, err
+		SELECT cu.role
+		FROM company_users cu
+		WHERE cu.company_id = $1 AND cu.user_id = $2`,
+		companyID, userID).Scan(&role)
+	if err != nil {
+		return models.Company{}, "", err
+	}
+	return *company, role, nil
+}
+
+func companyChatsCacheKey(companyID string) string {
+	return fmt.Sprintf("company:%s:chats", companyID)
+}
+
+func messagesCacheKey(prefix string, firstID, secondID string, limit int) string {
+	ids := []string{firstID, secondID}
+	sort.Strings(ids)
+	return fmt.Sprintf("messages:%s:%s:%s:%d", prefix, ids[0], ids[1], limit)
+}
+
+func deleteMessageCache(ctx context.Context, message models.Message) {
+	if message.ChatID != nil {
+		_ = cache.DeleteManyMessagesCache(ctx, messagesCacheKey("chat", *message.ChatID, "", 100))
+		return
+	}
+	if message.RecipientUserID != nil {
+		_ = cache.DeleteManyMessagesCache(ctx, messagesCacheKey("direct", message.SenderUserID, *message.RecipientUserID, 100))
+	}
+}
+
+func invalidateUserCompanyCaches(ctx context.Context, userID string) {
+	rows, err := db.DB.QueryContext(ctx, `SELECT company_id FROM company_users WHERE user_id = $1`, userID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var companyID string
+		if rows.Scan(&companyID) == nil {
+			_ = cache.DeleteCompanyUsersCache(ctx, companyID)
+		}
+	}
 }
 
 func requireCompanyMember(w http.ResponseWriter, r *http.Request, companyID, userID string) (models.Company, string, bool) {

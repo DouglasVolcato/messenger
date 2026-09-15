@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/models"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
@@ -30,24 +31,36 @@ func loadMessageViews(r *http.Request, messages []models.Message, currentUserID 
 	}
 
 	names := make(map[string]string)
-	rows, err := db.DB.QueryContext(r.Context(), `
-		SELECT id, name FROM users WHERE id::text = ANY($1)`, pq.Array(userIDs))
-	if err != nil {
-		return nil, err
+	missingUserIDs := make([]string, 0)
+	for _, userID := range userIDs {
+		if user, err := cache.GetUserCache(r.Context(), userID); err == nil {
+			names[user.ID] = user.Name
+		} else {
+			missingUserIDs = append(missingUserIDs, userID)
+		}
 	}
-	for rows.Next() {
-		var id, name string
-		if err := rows.Scan(&id, &name); err != nil {
+	if len(missingUserIDs) > 0 {
+		rows, err := db.DB.QueryContext(r.Context(), `
+			SELECT id, name, username, email, password_hash, status, created_at, updated_at
+			FROM users WHERE id::text = ANY($1)`, pq.Array(missingUserIDs))
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var user models.User
+			if err := rows.Scan(&user.ID, &user.Name, &user.Username, &user.Email, &user.PasswordHash, &user.Status, &user.CreatedAt, &user.UpdatedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			names[user.ID] = user.Name
+			_ = cache.SetUserCache(r.Context(), user)
+		}
+		if err := rows.Err(); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		names[id] = name
-	}
-	if err := rows.Err(); err != nil {
 		rows.Close()
-		return nil, err
 	}
-	rows.Close()
 
 	reactions := make(map[string][]ReactionView)
 	reactionRows, err := db.DB.QueryContext(r.Context(), `
@@ -116,10 +129,15 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		}
 
 		messageModel := models.Message{ChatID: &chat.ID}
-		messages, err := messageModel.GetChatMessages(db.DB, r.Context(), 100)
+		messagesKey := messagesCacheKey("chat", chat.ID, "", 100)
+		messages, err := cache.GetManyMessagesCache(r.Context(), messagesKey)
 		if err != nil {
-			http.Error(w, "could not load messages", http.StatusInternalServerError)
-			return
+			messages, err = messageModel.GetChatMessages(db.DB, r.Context(), 100)
+			if err != nil {
+				http.Error(w, "could not load messages", http.StatusInternalServerError)
+				return
+			}
+			_ = cache.SetManyMessagesCache(r.Context(), messages, messagesKey)
 		}
 		messageViews, err := loadMessageViews(r, messages, user.ID)
 		if err != nil {
@@ -205,6 +223,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not send message", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteManyMessagesCache(r.Context(), messagesCacheKey("chat", chat.ID, "", 100))
 		utils.Redirect(w, r, "/companies/"+chat.CompanyID+"/chats/"+chat.ID+"#message-"+message.ID)
 	}))
 
@@ -233,10 +252,15 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			LIMIT 1`, user.ID, target.ID).Scan(&companyID)
 
 		messageModel := models.Message{SenderUserID: user.ID}
-		messages, err := messageModel.GetDirectMessages(db.DB, r.Context(), target.ID, 100)
+		messagesKey := messagesCacheKey("direct", user.ID, target.ID, 100)
+		messages, err := cache.GetManyMessagesCache(r.Context(), messagesKey)
 		if err != nil {
-			http.Error(w, "could not load direct messages", http.StatusInternalServerError)
-			return
+			messages, err = messageModel.GetDirectMessages(db.DB, r.Context(), target.ID, 100)
+			if err != nil {
+				http.Error(w, "could not load direct messages", http.StatusInternalServerError)
+				return
+			}
+			_ = cache.SetManyMessagesCache(r.Context(), messages, messagesKey)
 		}
 		messageViews, err := loadMessageViews(r, messages, user.ID)
 		if err != nil {
@@ -317,6 +341,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not send message", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteManyMessagesCache(r.Context(), messagesCacheKey("direct", user.ID, target.ID, 100))
 		utils.Redirect(w, r, "/messages/users/"+target.ID+"#message-"+message.ID)
 	}))
 
@@ -361,6 +386,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not edit message", http.StatusInternalServerError)
 			return
 		}
+		deleteMessageCache(r.Context(), message)
 		utils.Redirect(w, r, safeReturnURL(r.FormValue("return_to"), "/companies")+"#message-"+message.ID)
 	}))
 
@@ -396,6 +422,7 @@ func RegisterMessageRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not delete message", http.StatusInternalServerError)
 			return
 		}
+		deleteMessageCache(r.Context(), message)
 		utils.Redirect(w, r, safeReturnURL(r.URL.Query().Get("return_to"), "/companies"))
 	}))
 

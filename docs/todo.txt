@@ -4,7 +4,7 @@ X server
 - dev env with externalized services
 X publisher worker
 - websocket
-- cache
+X cache
 - websocket worker
 - notifications and dlqs
 - kubernetes

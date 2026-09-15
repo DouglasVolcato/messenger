@@ -6,10 +6,120 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/models"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
+	"github.com/lib/pq"
 )
+
+func loadCompanyChats(r *http.Request, companyID, userID string) ([]ChatView, error) {
+	key := companyChatsCacheKey(companyID)
+	chats, err := cache.GetChatsCache(r.Context(), key)
+	if err != nil {
+		model := models.Chat{CompanyID: companyID}
+		chats, _, err = model.GetMany(db.DB, r.Context(), 1, 100)
+		if err != nil {
+			return nil, err
+		}
+		_ = cache.SetChatsCache(r.Context(), chats, key)
+	}
+	if len(chats) == 0 {
+		return []ChatView{}, nil
+	}
+
+	chatIDs := make([]string, 0, len(chats))
+	for _, chat := range chats {
+		chatIDs = append(chatIDs, chat.ID)
+	}
+	rows, err := db.DB.QueryContext(r.Context(), `
+		SELECT ch.id, ch.company_id, ch.name,
+		       EXISTS(SELECT 1 FROM chat_users mine WHERE mine.chat_id = ch.id AND mine.user_id = $2),
+		       (SELECT COUNT(*) FROM chat_users members WHERE members.chat_id = ch.id)
+		FROM chats ch
+		WHERE ch.id::text = ANY($1)
+		ORDER BY ch.created_at ASC, ch.id ASC`, pq.Array(chatIDs), userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	views := make([]ChatView, 0, len(chats))
+	for rows.Next() {
+		var view ChatView
+		if err := rows.Scan(&view.ID, &view.CompanyID, &view.Name, &view.Subscribed, &view.MemberCount); err != nil {
+			return nil, err
+		}
+		views = append(views, view)
+	}
+	return views, rows.Err()
+}
+
+func loadCompanyMembers(r *http.Request, companyID string) ([]MemberView, error) {
+	users, err := cache.GetCompanyUsersCache(r.Context(), companyID)
+	if err != nil {
+		rows, queryErr := db.DB.QueryContext(r.Context(), `
+			SELECT cu.id, u.id, u.name, u.username, u.email, u.password_hash, u.status, u.created_at, u.updated_at, cu.role
+			FROM company_users cu
+			JOIN users u ON u.id = cu.user_id
+			WHERE cu.company_id = $1
+			ORDER BY CASE WHEN cu.role = 'ADMIN' THEN 0 ELSE 1 END, u.name ASC`, companyID)
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		defer rows.Close()
+		users = make([]models.User, 0)
+		members := make([]MemberView, 0)
+		for rows.Next() {
+			var user models.User
+			var member MemberView
+			if scanErr := rows.Scan(&member.ID, &user.ID, &user.Name, &user.Username, &user.Email, &user.PasswordHash, &user.Status, &user.CreatedAt, &user.UpdatedAt, &member.Role); scanErr != nil {
+				return nil, scanErr
+			}
+			member.UserID = user.ID
+			member.Name = user.Name
+			member.Username = user.Username
+			member.Email = user.Email
+			member.Status = user.Status
+			users = append(users, user)
+			members = append(members, member)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		_ = cache.SetCompanyUsersCache(r.Context(), users, companyID)
+		return members, nil
+	}
+
+	roles := make(map[string]MemberView, len(users))
+	rows, err := db.DB.QueryContext(r.Context(), `
+		SELECT id, user_id, role
+		FROM company_users
+		WHERE company_id = $1`, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var member MemberView
+		if err := rows.Scan(&member.ID, &member.UserID, &member.Role); err != nil {
+			return nil, err
+		}
+		roles[member.UserID] = member
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	members := make([]MemberView, 0, len(users))
+	for _, user := range users {
+		member, ok := roles[user.ID]
+		if !ok {
+			continue
+		}
+		member.Name, member.Username, member.Email, member.Status = user.Name, user.Username, user.Email, user.Status
+		members = append(members, member)
+	}
+	return members, nil
+}
 
 func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVersion string) {
 	mux.Handle("GET /companies", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +214,8 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not create company", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.SetCompanyCache(r.Context(), company)
+		_ = cache.DeleteCompanyUsersCache(r.Context(), company.ID)
 		utils.Redirect(w, r, "/companies/"+company.ID+"?success=Company+created")
 	}))
 
@@ -118,66 +230,17 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			return
 		}
 
-		chatRows, err := db.DB.QueryContext(r.Context(), `
-			SELECT ch.id, ch.company_id, ch.name,
-			       EXISTS(
-			           SELECT 1 FROM chat_users mine
-			           WHERE mine.chat_id = ch.id AND mine.user_id = $2
-			       ) AS subscribed,
-			       (SELECT COUNT(*) FROM chat_users members WHERE members.chat_id = ch.id) AS member_count
-			FROM chats ch
-			WHERE ch.company_id = $1
-			ORDER BY ch.created_at ASC, ch.id ASC`, companyID, user.ID)
+		chats, err := loadCompanyChats(r, companyID, user.ID)
 		if err != nil {
 			http.Error(w, "could not load chats", http.StatusInternalServerError)
 			return
 		}
-		chats := make([]ChatView, 0)
-		for chatRows.Next() {
-			var item ChatView
-			if err := chatRows.Scan(&item.ID, &item.CompanyID, &item.Name, &item.Subscribed, &item.MemberCount); err != nil {
-				chatRows.Close()
-				http.Error(w, "could not load chats", http.StatusInternalServerError)
-				return
-			}
-			chats = append(chats, item)
-		}
-		if err := chatRows.Err(); err != nil {
-			chatRows.Close()
-			http.Error(w, "could not load chats", http.StatusInternalServerError)
-			return
-		}
-		chatRows.Close()
 
-		memberRows, err := db.DB.QueryContext(r.Context(), `
-			SELECT cu.id, u.id, u.name, u.username, u.email, cu.role, u.status
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1
-			ORDER BY u.name ASC, u.id ASC`, companyID)
+		members, err := loadCompanyMembers(r, companyID)
 		if err != nil {
 			http.Error(w, "could not load company users", http.StatusInternalServerError)
 			return
 		}
-		members := make([]MemberView, 0)
-		for memberRows.Next() {
-			var member MemberView
-			if err := memberRows.Scan(
-				&member.ID, &member.UserID, &member.Name, &member.Username,
-				&member.Email, &member.Role, &member.Status,
-			); err != nil {
-				memberRows.Close()
-				http.Error(w, "could not load company users", http.StatusInternalServerError)
-				return
-			}
-			members = append(members, member)
-		}
-		if err := memberRows.Err(); err != nil {
-			memberRows.Close()
-			http.Error(w, "could not load company users", http.StatusInternalServerError)
-			return
-		}
-		memberRows.Close()
 
 		utils.ExecuteTemplate(w, templ, "companies/show.html", &ViewData{
 			AppVersion:          appVersion,
@@ -248,6 +311,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not update company", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteCompanyCache(r.Context(), companyID)
 		utils.Redirect(w, r, "/companies/"+companyID+"/settings?success=Company+updated")
 	}))
 
@@ -260,28 +324,10 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 		if !ok {
 			return
 		}
-		rows, err := db.DB.QueryContext(r.Context(), `
-			SELECT cu.id, u.id, u.name, u.username, u.email, cu.role, u.status
-			FROM company_users cu
-			JOIN users u ON u.id = cu.user_id
-			WHERE cu.company_id = $1
-			ORDER BY CASE WHEN cu.role = 'ADMIN' THEN 0 ELSE 1 END, u.name ASC`, company.ID)
+		members, err := loadCompanyMembers(r, company.ID)
 		if err != nil {
 			http.Error(w, "could not load members", http.StatusInternalServerError)
 			return
-		}
-		defer rows.Close()
-		members := make([]MemberView, 0)
-		for rows.Next() {
-			var member MemberView
-			if err := rows.Scan(
-				&member.ID, &member.UserID, &member.Name, &member.Username,
-				&member.Email, &member.Role, &member.Status,
-			); err != nil {
-				http.Error(w, "could not load members", http.StatusInternalServerError)
-				return
-			}
-			members = append(members, member)
 		}
 		utils.ExecuteTemplate(w, templ, "companies/members/index.html", &ViewData{
 			AppVersion:  appVersion,
@@ -346,6 +392,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not add user", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteCompanyUsersCache(r.Context(), companyID)
 		utils.Redirect(w, r, "/companies/"+companyID+"/members?success=User+added")
 	}))
 
@@ -414,6 +461,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not update user role", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteCompanyUsersCache(r.Context(), companyID)
 		utils.Redirect(w, r, "/companies/"+companyID+"/members?success=Role+updated")
 	}))
 
@@ -481,6 +529,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not remove user", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteCompanyUsersCache(r.Context(), companyID)
 		utils.Redirect(w, r, "/companies/"+companyID+"/members?success=User+removed")
 	}))
 
@@ -544,6 +593,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not create chat", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteChatsCache(r.Context(), companyChatsCacheKey(companyID))
 		utils.Redirect(w, r, "/companies/"+companyID+"/chats/"+chat.ID)
 	}))
 

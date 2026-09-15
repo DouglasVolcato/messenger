@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/models"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
@@ -40,6 +41,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.SetUserCache(r.Context(), user)
 		utils.Redirect(w, r, "/companies")
 	}))
 
@@ -87,6 +89,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, templ *template.Template, appVersion
 			http.Error(w, "could not create session", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.SetUserCache(r.Context(), user)
 		utils.Redirect(w, r, "/companies")
 	}))
 

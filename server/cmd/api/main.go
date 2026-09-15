@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/routes"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
@@ -15,8 +16,6 @@ import (
 )
 
 func main() {
-	// Prefer process environment variables. For direct local execution, support
-	// either server/.env or the repository-root ../.env after the monorepo split.
 	if err := gotenv.Load(); err != nil {
 		if !os.IsNotExist(err) {
 			panic(err)
@@ -28,9 +27,23 @@ func main() {
 	if err := db.InitDB(); err != nil {
 		panic(err)
 	}
+	defer func() {
+		if err := db.CloseDB(); err != nil {
+			panic(err)
+		}
+	}()
 	if err := db.RunMigrations(); err != nil {
 		panic(err)
 	}
+
+	if err := cache.InitRedisClient(); err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err := cache.CloseRedisClient(); err != nil {
+			panic(err)
+		}
+	}()
 
 	appVersion, err := utils.GenerateUUID()
 	if err != nil {

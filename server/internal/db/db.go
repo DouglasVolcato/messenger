@@ -26,6 +26,13 @@ func InitDB() error {
 	return nil
 }
 
+func CloseDB() error {
+	if DB != nil {
+		return DB.Close()
+	}
+	return nil
+}
+
 func BeginTransaction(ctx context.Context) (*sql.Tx, error) {
 	tx, err := DB.BeginTx(ctx, nil)
 	if err != nil {

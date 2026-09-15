@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
 )
@@ -23,6 +24,8 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 		tx, err := db.BeginTransaction(r.Context()); if err != nil { http.Error(w, "could not start transaction", http.StatusInternalServerError); return }
 		if err := user.Update(tx, r.Context()); err != nil { _ = db.RollbackTransaction(tx); utils.Redirect(w, r, "/settings/profile?error=Username+or+email+already+in+use"); return }
 		if err := db.CommitTransaction(tx); err != nil { http.Error(w, "could not update profile", http.StatusInternalServerError); return }
+		_ = cache.DeleteUserCache(r.Context(), user.ID)
+		invalidateUserCompanyCaches(r.Context(), user.ID)
 		utils.Redirect(w, r, "/settings/profile?success=Profile+updated")
 	}))
 
@@ -40,6 +43,7 @@ func RegisterSettingsRoutes(mux *http.ServeMux, templ *template.Template, appVer
 		tx, err := db.BeginTransaction(r.Context()); if err != nil { http.Error(w, "could not start transaction", http.StatusInternalServerError); return }
 		if err := user.UpdatePassword(tx, r.Context()); err != nil { _ = db.RollbackTransaction(tx); http.Error(w, "could not update password", http.StatusInternalServerError); return }
 		if err := db.CommitTransaction(tx); err != nil { http.Error(w, "could not update password", http.StatusInternalServerError); return }
+		_ = cache.DeleteUserCache(r.Context(), user.ID)
 		utils.Redirect(w, r, "/settings/security?success=Password+updated")
 	}))
 }

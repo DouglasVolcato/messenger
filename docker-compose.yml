@@ -14,6 +14,7 @@ services:
       MIGRATIONS_DIR: ${MIGRATIONS_DIR:-migrations}
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
       PASSWORD_SALT: ${PASSWORD_SALT:-local-development-salt}
+      REDIS_URL: redis://redis:6379
     expose:
       - "8080"
     depends_on:
