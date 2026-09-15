@@ -25,12 +25,7 @@ WORKDIR /app
 RUN addgroup -S app && adduser -S -G app app
 
 COPY --from=builder --chown=app:app /out/publisher_worker ./publisher_worker
-COPY --chown=app:app internal/views ./internal/views
-COPY --chown=app:app migrations ./migrations
-COPY --chown=app:app static ./static
 
 USER app
-
-EXPOSE 8080
 
 ENTRYPOINT ["./publisher_worker"]

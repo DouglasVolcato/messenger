@@ -40,44 +40,37 @@ func (n *UserNotificationOutbox) Delete(tx *sql.Tx, ctx context.Context) error {
 	return err
 }
 
-func (n *UserNotificationOutbox) GetManyWithLock(db *sql.DB, ctx context.Context, page, limit int) ([]UserNotificationOutbox, int64, error) {
-	if page < 1 {
-		page = 1
-	}
+func (n *UserNotificationOutbox) GetManyWithLock(tx *sql.Tx, ctx context.Context, limit int) ([]UserNotificationOutbox, error) {
 	if limit < 1 {
 		limit = 50
 	}
 	if limit > 100 {
 		limit = 100
 	}
-	offset := (page - 1) * limit
 
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, user_id, type, title, content, action_url, status, created_at, updated_at,
-		       COUNT(*) OVER() AS total
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, user_id, type, title, content, action_url, status, created_at, updated_at
 		FROM user_notifications_outbox
 		WHERE status = 'PENDING'
 		ORDER BY created_at ASC, id ASC
-		LIMIT 1
-		FOR UPDATE SKIP LOCKED;
-		`, limit, offset,
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED`, limit,
 	)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
 	items := make([]UserNotificationOutbox, 0)
-	var total int64
 	for rows.Next() {
 		var item UserNotificationOutbox
 		if err := rows.Scan(
-			&item.ID, &item.UserID, &item.Type, &item.Title, &item.Content, &item.ActionURL, &item.Status, &item.CreatedAt, &item.UpdatedAt, &total,
+			&item.ID, &item.UserID, &item.Type, &item.Title, &item.Content, &item.ActionURL, &item.Status, &item.CreatedAt, &item.UpdatedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		items = append(items, item)
 	}
 
-	return items, total, rows.Err()
+	return items, rows.Err()
 }
