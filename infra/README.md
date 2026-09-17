@@ -151,7 +151,7 @@ The Nginx load balancer uses Docker DNS and automatic upstream hostname re-resol
 
 Server startup migrations are protected by a PostgreSQL transaction-level advisory lock. If several HTTP replicas start simultaneously, only one applies migrations while the others wait and then observe the already-applied migration records.
 
-The realtime/WebSocket worker responsible for consuming events and routing notifications to the correct WebSocket replica remains a separate architecture step. The current WebSocket service establishes, authenticates and registers connections but does not replace that worker.
+The WebSocket worker consumes RabbitMQ queues with one loop per priority: direct messages are high priority, chat messages normal priority and company membership events low priority. For each event it reads the active sessions from Redis and logs the intended delivery route. It deliberately does not publish to connected WebSocket clients yet.
 
 ## CDC
 
