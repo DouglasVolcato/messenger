@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,22 +17,34 @@ import (
 	"time"
 
 	"github.com/douglasvolcato/messager-architecture-challenge/cache"
+	grpcapi "github.com/douglasvolcato/messager-architecture-challenge/internal/grpc"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
+	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/gorilla/websocket"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
-	defaultPort = "8080"
-	writeWait   = 5 * time.Second
-	pongWait    = 30 * time.Second
-	pingPeriod  = (pongWait * 9) / 10
-	sendBuffer  = 64
-	redisTTL    = 45 * time.Second
+	defaultPort     = "8080"
+	writeWait       = 5 * time.Second
+	pongWait        = 30 * time.Second
+	pingPeriod      = (pongWait * 9) / 10
+	sendBuffer      = 64
+	redisTTL        = 45 * time.Second
+	defaultGRPCPort = "9090"
+	registryTTL     = 90 * time.Second
 )
 
 type socketServer struct {
 	mu      sync.Mutex
-	clients map[*Client]struct{}
+	clients map[string]*Client
+}
+
+type grpcDeliveryServer struct {
+	grpcapi.UnimplementedWebSocketDeliveryServer
+	socketServer *socketServer
 }
 
 type Client struct {
@@ -59,12 +73,44 @@ func main() {
 		}
 	}()
 
-	wsServer := &socketServer{clients: make(map[*Client]struct{})}
+	wsServer := &socketServer{clients: make(map[string]*Client)}
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin:     isAllowedOrigin,
 	}
+
+	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	grpcPort := strings.TrimSpace(os.Getenv("WEBSOCKET_GRPC_PORT"))
+	if grpcPort == "" {
+		grpcPort = defaultGRPCPort
+	}
+	grpcListener, err := net.Listen("tcp4", ":"+grpcPort)
+	if err != nil {
+		log.Fatalf("start gRPC listener: %v", err)
+	}
+	grpcServer := grpc.NewServer()
+	grpcapi.RegisterWebSocketDeliveryServer(grpcServer, &grpcDeliveryServer{socketServer: wsServer})
+
+	grpcAddress, err := privateAddress(grpcPort)
+	if err != nil {
+		log.Fatalf("resolve gRPC address: %v", err)
+	}
+	if err := registerGRPCEndpoint(shutdownCtx, serverID, grpcAddress); err != nil {
+		log.Fatalf("register gRPC endpoint: %v", err)
+	}
+	defer func() {
+		_ = cache.RDB.Del(context.Background(), grpcRegistryKey(serverID)).Err()
+	}()
+	go refreshGRPCEndpoint(shutdownCtx, serverID, grpcAddress)
+	go func() {
+		log.Printf("WebSocket server %s gRPC listening on %s", serverID, grpcAddress)
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			log.Printf("gRPC server stopped: %v", err)
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
@@ -134,9 +180,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
 	serveErr := make(chan error, 1)
 	go func() {
 		log.Printf("WebSocket server %s listening on :%s", serverID, port)
@@ -160,6 +203,7 @@ func main() {
 	if err := httpServer.Shutdown(gracefulCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
 	}
+	grpcServer.GracefulStop()
 	wsServer.closeAll()
 }
 
@@ -216,19 +260,19 @@ func isAllowedOrigin(r *http.Request) bool {
 func (s *socketServer) add(c *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.clients[c] = struct{}{}
+	s.clients[c.connectionID] = c
 }
 
 func (s *socketServer) remove(c *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.clients, c)
+	delete(s.clients, c.connectionID)
 }
 
 func (s *socketServer) closeAll() {
 	s.mu.Lock()
 	clients := make([]*Client, 0, len(s.clients))
-	for client := range s.clients {
+	for _, client := range s.clients {
 		clients = append(clients, client)
 	}
 	s.mu.Unlock()
@@ -236,6 +280,81 @@ func (s *socketServer) closeAll() {
 	for _, client := range clients {
 		client.close()
 	}
+}
+
+func (s *socketServer) deliver(userID string, connectionIDs []string, payload []byte) {
+	s.mu.Lock()
+	clients := make([]*Client, 0, len(connectionIDs))
+	for _, connectionID := range connectionIDs {
+		client, ok := s.clients[connectionID]
+		if ok && client.userID == userID {
+			clients = append(clients, client)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, client := range clients {
+		client.SendNotification(payload)
+	}
+}
+
+func (s *grpcDeliveryServer) Deliver(_ context.Context, request *grpcapi.DeliveryRequest) (*empty.Empty, error) {
+	if request.GetUserId() == "" || len(request.GetConnectionIds()) == 0 || request.GetNotification() == nil {
+		return nil, status.Error(codes.InvalidArgument, "user_id, connection_ids and notification are required")
+	}
+
+	payload, err := json.Marshal(request.GetNotification())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "marshal notification: %v", err)
+	}
+	s.socketServer.deliver(request.GetUserId(), request.GetConnectionIds(), payload)
+	return &empty.Empty{}, nil
+}
+
+func grpcRegistryKey(serverID string) string {
+	return "websocket:server:" + serverID + ":grpc"
+}
+
+func registerGRPCEndpoint(ctx context.Context, serverID, address string) error {
+	return cache.RDB.Set(ctx, grpcRegistryKey(serverID), address, registryTTL).Err()
+}
+
+func refreshGRPCEndpoint(ctx context.Context, serverID, address string) {
+	ticker := time.NewTicker(registryTTL / 3)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := registerGRPCEndpoint(ctx, serverID, address); err != nil {
+				log.Printf("refresh gRPC endpoint for WebSocket server %s: %v", serverID, err)
+			}
+		}
+	}
+}
+
+func privateAddress(port string) (string, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return "", err
+	}
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&net.FlagUp == 0 || networkInterface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addresses, err := networkInterface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, address := range addresses {
+			ip, _, err := net.ParseCIDR(address.String())
+			if err == nil && ip.To4() != nil && !ip.IsLoopback() {
+				return net.JoinHostPort(ip.String(), port), nil
+			}
+		}
+	}
+	return "", errors.New("no private IPv4 address found")
 }
 
 func (c *Client) close() {

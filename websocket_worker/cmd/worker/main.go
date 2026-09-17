@@ -13,19 +13,23 @@ import (
 	"time"
 
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/cache"
+	grpcapi "github.com/douglasvolcato/messager-architecture-challenge/internal/grpc"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/subosito/gotenv"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const reconnectDelay = 5 * time.Second
 
 type notificationEvent struct {
-	ID      string
-	UserID  string
-	Type    string
-	Title   *string
-	Content string
+	ID        string
+	UserID    string
+	Type      string
+	Title     *string
+	Content   string
+	ActionURL *string
 }
 
 type websocketSession struct {
@@ -111,8 +115,12 @@ func handleDelivery(ctx context.Context, priorityQueue rabbitmq.PriorityQueue, d
 		return fmt.Errorf("read WebSocket sessions for user %q: %w", event.UserID, err)
 	}
 
+	if err := deliverToWebSocketServers(ctx, event, sessions); err != nil {
+		return err
+	}
+
 	log.Printf(
-		"WebSocket event received priority=%s queue=%s message_id=%q event_id=%q user_id=%q type=%q active_sessions=%d sessions=%v; delivery disabled",
+		"WebSocket event delivered priority=%s queue=%s message_id=%q event_id=%q user_id=%q type=%q active_sessions=%d sessions=%v",
 		priorityQueue.Priority,
 		priorityQueue.Name,
 		delivery.MessageId,
@@ -123,6 +131,60 @@ func handleDelivery(ctx context.Context, priorityQueue rabbitmq.PriorityQueue, d
 		sessions,
 	)
 	return nil
+}
+
+func deliverToWebSocketServers(ctx context.Context, event notificationEvent, sessions []websocketSession) error {
+	connectionIDsByServer := make(map[string][]string)
+	for _, session := range sessions {
+		connectionIDsByServer[session.ServerID] = append(connectionIDsByServer[session.ServerID], session.ConnectionID)
+	}
+
+	for serverID, connectionIDs := range connectionIDsByServer {
+		address, err := cache.RDB.Get(ctx, grpcRegistryKey(serverID)).Result()
+		if err != nil {
+			return fmt.Errorf("get gRPC endpoint for WebSocket server %q: %w", serverID, err)
+		}
+
+		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		connection, err := grpc.DialContext(callCtx, address, grpc.WithBlock(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			cancel()
+			return fmt.Errorf("connect to WebSocket server %q gRPC endpoint %q: %w", serverID, address, err)
+		}
+
+		_, err = grpcapi.NewWebSocketDeliveryClient(connection).Deliver(callCtx, &grpcapi.DeliveryRequest{
+			UserId:        event.UserID,
+			ConnectionIds: connectionIDs,
+			Notification: &grpcapi.Notification{
+				Id:        event.ID,
+				Type:      event.Type,
+				Title:     stringValue(event.Title),
+				Content:   event.Content,
+				ActionUrl: stringValue(event.ActionURL),
+			},
+		})
+		closeErr := connection.Close()
+		cancel()
+		if err != nil {
+			return fmt.Errorf("deliver notification to WebSocket server %q: %w", serverID, err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close gRPC connection to WebSocket server %q: %w", serverID, closeErr)
+		}
+	}
+
+	return nil
+}
+
+func grpcRegistryKey(serverID string) string {
+	return "websocket:server:" + serverID + ":grpc"
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func loadActiveSessions(ctx context.Context, userID string) ([]websocketSession, error) {

@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package messenger.websocket.v1;
+
+option go_package = "github.com/douglasvolcato/messager-architecture-challenge/internal/grpc;grpcapi";
+
+import "google/protobuf/empty.proto";
+
+service WebSocketDelivery {
+  rpc Deliver(DeliveryRequest) returns (google.protobuf.Empty);
+}
+
+message DeliveryRequest {
+  string user_id = 1;
+  repeated string connection_ids = 2;
+  Notification notification = 3;
+}
+
+message Notification {
+  string id = 1;
+  string type = 2;
+  string title = 3;
+  string content = 4;
+  string action_url = 5;
+}

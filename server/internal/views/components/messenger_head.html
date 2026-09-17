@@ -7,6 +7,9 @@
   />
   <link rel="stylesheet" href="/static/assets/fonts.css?v={{ .AppVersion }}" />
   <script src="/static/assets/htmx.min.js?v={{ .AppVersion }}"></script>
+  {{ if .User.ID }}
+    <script defer src="/static/assets/realtime-notifications.js?v={{ .AppVersion }}"></script>
+  {{ end }}
   <style>
     body {
       font-family: "Nunito Sans", sans-serif;
@@ -47,6 +50,62 @@
       border-radius: 10px;
       padding: 0.7rem 0.8rem;
       background: white;
+    }
+    .notification-toasts {
+      position: fixed;
+      z-index: 1000;
+      top: 1rem;
+      right: 1rem;
+      display: grid;
+      width: min(24rem, calc(100vw - 2rem));
+      gap: 0.75rem;
+    }
+    .notification-toast {
+      border: 1px solid #c9ddcd;
+      border-radius: 14px;
+      background: #fff;
+      padding: 1rem;
+      box-shadow: 0 12px 28px rgba(46, 50, 48, 0.18);
+      animation: notification-toast-in 220ms ease-out;
+    }
+    .notification-toast-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .notification-toast-type {
+      color: #3f694b;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .notification-toast-close {
+      min-width: 2rem;
+      min-height: 2rem;
+      border-radius: 8px;
+      color: #6b6358;
+      font-size: 1.25rem;
+      line-height: 1;
+    }
+    .notification-toast-close:hover,
+    .notification-toast-close:focus-visible {
+      background: #f0ece4;
+      outline: none;
+    }
+    .notification-toast-link {
+      display: inline-flex;
+      margin-top: 0.75rem;
+      color: #3f694b;
+      font-size: 0.875rem;
+      font-weight: 800;
+      text-decoration: underline;
+      text-underline-offset: 0.2rem;
+    }
+    @keyframes notification-toast-in {
+      from { opacity: 0; transform: translateY(-0.5rem); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     .chat-page {
