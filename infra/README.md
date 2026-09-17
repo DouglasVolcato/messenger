@@ -24,7 +24,6 @@ websocket/
 
 infra/
   nginx/
-  websocket-nginx/
   prometheus/
   grafana/
   cdc/
@@ -35,13 +34,12 @@ docker-compose.yml
 
 ## Services and network exposure
 
-Only the HTTP Nginx and the dedicated WebSocket Nginx publish ports on the Docker host. Application processes and infrastructure dependencies stay reachable only inside the `messenger` Docker network.
+Only the Nginx load balancer publishes a port on the Docker host. Application processes and infrastructure dependencies stay reachable only inside the `messenger` Docker network.
 
 | Service | Purpose | Network exposure |
 | --- | --- | --- |
-| `load-balancer` | Nginx reverse proxy/load balancer for HTTP server replicas | host `${NGINX_PORT:-80}` -> container `80` |
+| `load-balancer` | Nginx reverse proxy/load balancer for HTTP and WebSocket replicas | host `${NGINX_PORT:-80}` -> container `80` |
 | `server` | Main Go application | internal `8080` |
-| `websocket-load-balancer` | Dedicated Nginx for long-lived WebSocket connections | host `${WEBSOCKET_NGINX_PORT:-8081}` -> container `80` |
 | `websocket` | Authenticated WebSocket replicas and Redis connection registry | internal `8080` |
 | `postgres` | Primary durable database with logical replication enabled | internal `5432` |
 | `redis` | Cache and WebSocket connection registry | internal `6379` |
@@ -52,9 +50,7 @@ Only the HTTP Nginx and the dedicated WebSocket Nginx publish ports on the Docke
 | `prometheus` | Metrics collection | internal `9090` |
 | `grafana` | Dashboards | internal `3000` |
 
-Exporter containers expose PostgreSQL, Redis and both Nginx instances only inside the Compose network. RabbitMQ exposes Prometheus metrics through its native plugin, also only inside that network.
-
-The WebSocket Nginx is intentionally separate from the HTTP Nginx because long-lived upgraded connections have different timeout, connection-count and scaling characteristics from normal HTTP traffic.
+Exporter containers expose PostgreSQL, Redis and Nginx only inside the Compose network. RabbitMQ exposes Prometheus metrics through its native plugin, also only inside that network.
 
 ## Environment handling
 
@@ -68,19 +64,18 @@ Docker Compose uses the repository-root `.env` for interpolation and injects it 
 
 `DB_URL` is deliberately overridden by Compose so the HTTP server connects to `postgres:5432` over the Docker network instead of using the host-local `localhost` value from `.env`.
 
-Both Go services listen on internal port `8080` when started by Compose. Their Nginx instances address them through Docker DNS, so host-side ports can change without changing the application listeners.
+Both Go services listen on internal port `8080` when started by Compose. The Nginx load balancer addresses them through Docker DNS, so host-side ports can change without changing the application listeners.
 
-The two host entrypoints are controlled independently:
+The single host entrypoint is controlled by:
 
 ```env
 NGINX_PORT=8088
-WEBSOCKET_NGINX_PORT=8089
 ```
 
 The browser WebSocket endpoint is then:
 
 ```text
-ws://localhost:8089/ws/notifications
+ws://localhost:8088/ws/notifications
 ```
 
 For production TLS termination, use `wss://` at the external proxy/load balancer. If the browser application and WebSocket use different hostnames, configure a comma-separated allowlist:
@@ -89,7 +84,7 @@ For production TLS termination, use `wss://` at the external proxy/load balancer
 WEBSOCKET_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
 ```
 
-Same-host browser origins are accepted automatically, including when the HTTP and WebSocket ports differ.
+Same-host browser origins are accepted automatically.
 
 ## Start
 
@@ -100,7 +95,7 @@ docker compose up --build
 With the default environment:
 
 - HTTP application: `http://localhost`
-- WebSocket: `ws://localhost:8081/ws/notifications`
+- WebSocket: `ws://localhost/ws/notifications`
 
 RabbitMQ management, Prometheus, Grafana, PostgreSQL and Redis are intentionally not available directly from the host. Access them from inside the Docker network or add an explicit temporary/debug exposure when required.
 
@@ -130,7 +125,7 @@ user:sessions:<user_id>
 
 The connection registry is refreshed during the ping/pong heartbeat. The expiry timestamp allows future realtime workers to ignore stale connection records after a WebSocket replica crash.
 
-The dedicated WebSocket Nginx uses `least_conn`, disables proxy buffering, forwards the required WebSocket upgrade headers and uses longer proxy read/send timeouts than the HTTP proxy.
+The Nginx load balancer routes `/ws/` to WebSocket replicas using `least_conn`, disables proxy buffering, forwards the required upgrade headers and uses longer proxy read/send timeouts than normal HTTP traffic.
 
 The WebSocket process handles SIGINT/SIGTERM, closes active upgraded connections and removes their Redis session records during graceful shutdown.
 
@@ -140,7 +135,7 @@ Prometheus is configured with Docker DNS service discovery for `server`, so when
 
 The current Go HTTP application does not expose `/metrics` yet, so those application targets remain down until instrumentation is added. Infrastructure metrics are available immediately.
 
-The HTTP and WebSocket Nginx instances each have their own `nginx-prometheus-exporter`, allowing long-lived WebSocket proxy behavior to be observed independently from normal HTTP traffic.
+The Nginx exporter exposes load-balancer metrics inside the Compose network.
 
 Grafana automatically provisions the `Messenger - Local Architecture Overview` dashboard and the Prometheus datasource.
 
@@ -152,9 +147,7 @@ The application services intentionally have no `container_name`, so Compose can 
 docker compose up --build --scale server=3 --scale websocket=3
 ```
 
-Both Nginx instances use Docker DNS and automatic upstream hostname re-resolution. New replicas can therefore be discovered without hard-coding container IPs.
-
-The HTTP Nginx and WebSocket Nginx remain separate, so server replicas and persistent-connection replicas can be scaled according to different bottlenecks.
+The Nginx load balancer uses Docker DNS and automatic upstream hostname re-resolution for both service pools. New replicas can therefore be discovered without hard-coding container IPs.
 
 Server startup migrations are protected by a PostgreSQL transaction-level advisory lock. If several HTTP replicas start simultaneously, only one applies migrations while the others wait and then observe the already-applied migration records.
 
