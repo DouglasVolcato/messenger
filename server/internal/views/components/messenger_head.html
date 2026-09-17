@@ -51,6 +51,29 @@
       padding: 0.7rem 0.8rem;
       background: white;
     }
+    .direct-message-row {
+      display: flex;
+      width: 100%;
+    }
+    .direct-message-row.own {
+      justify-content: flex-end;
+    }
+    .direct-message {
+      width: fit-content;
+      max-width: min(82%, 42rem);
+    }
+    .direct-message-meta {
+      margin-bottom: 0.25rem;
+      color: #6b6358;
+      font-size: 0.75rem;
+    }
+    .direct-message-row.own .direct-message-meta {
+      text-align: right;
+    }
+    .direct-message-bubble {
+      display: inline-block;
+      text-align: left;
+    }
     .notification-toasts {
       position: fixed;
       z-index: 1000;

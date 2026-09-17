@@ -80,15 +80,17 @@ func (m *Message) Create(tx *sql.Tx, ctx context.Context) error {
 
 	if m.Direct {
 		title := "New direct message"
-		actionURL := "/messages/users/" + m.SenderUserID
-		notification := UserNotification{
+		actionURL := "/messages/users/" + m.SenderUserID + "#message-" + m.ID
+			notification := UserNotification{
 			UserID:    *m.RecipientUserID,
 			Type:      "DIRECT_MESSAGE",
 			Title:     &title,
 			Content:   senderName + " sent you a message.",
 			ActionURL: &actionURL,
 		}
-		notification.Create(tx, ctx)
+		if err := notification.Create(tx, ctx); err != nil {
+			return err
+		}
 
 		notificationOutbox := UserNotificationOutbox{
 			UserID:    *m.RecipientUserID,
@@ -98,7 +100,10 @@ func (m *Message) Create(tx *sql.Tx, ctx context.Context) error {
 			ActionURL: &actionURL,
 			Status:    "PENDING",
 		}
-		notificationOutbox.Create(tx, ctx)
+		if err := notificationOutbox.Create(tx, ctx); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	var companyID string

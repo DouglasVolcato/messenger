@@ -77,6 +77,14 @@
       link.className = "notification-toast-link";
       link.href = actionURL;
       link.textContent = "Open notification";
+      link.addEventListener("click", (event) => {
+        const action = new URL(actionURL);
+        if (action.pathname !== window.location.pathname || action.search !== window.location.search) return;
+
+        event.preventDefault();
+        window.history.replaceState(null, "", `${action.pathname}${action.search}${action.hash}`);
+        window.location.reload();
+      });
       toast.append(link);
     }
 

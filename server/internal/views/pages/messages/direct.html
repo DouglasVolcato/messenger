@@ -9,20 +9,22 @@
   </header>
   {{ if .Success }}<div class="card p-3 mt-4 border-green-700">{{ .Success }}</div>{{ end }}
   {{ if .Error }}<div class="card p-3 mt-4 border-red-400 text-red-700">{{ .Error }}</div>{{ end }}
-  <section class="flex-1 py-6 space-y-6">
+  <section id="direct-messages" class="flex-1 py-6 space-y-3">
     {{ range .Messages }}
       {{ $message := . }}
-      <article id="message-{{ .ID }}" class="max-w-2xl {{ if eq .UserID $.User.ID }}ml-auto text-right{{ end }}">
-        <div class="text-xs muted">{{ .UserName }} · {{ .CreatedAt.Format "02 Jan 15:04" }}</div>
-        {{ if .DeletedAt }}<p class="muted italic mt-1">Message removed</p>{{ else }}
-          <div class="card inline-block p-3 mt-1 text-left"><p class="whitespace-pre-wrap">{{ .Content }}{{ if .EditedAt }} <span class="text-xs muted">edited</span>{{ end }}</p></div>
-          {{ if .Reactions }}<div class="flex flex-wrap gap-1 mt-2 {{ if eq .UserID $.User.ID }}justify-end{{ end }} text-xs">{{ range .Reactions }}<form action="/api/messages/reactions/{{ $message.ID }}" method="post"><input type="hidden" name="reaction" value="{{ .Reaction }}" /><input type="hidden" name="return_to" value="/messages/users/{{ $.DirectUser.ID }}" /><button class="rounded-full border px-2 py-1">{{ .Reaction }} {{ .Count }}</button></form>{{ end }}</div>{{ end }}
-          <div class="flex gap-3 mt-2 text-xs {{ if eq .UserID $.User.ID }}justify-end{{ end }}">
-            <form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="👍" /><input type="hidden" name="return_to" value="/messages/users/{{ $.DirectUser.ID }}" /><button class="text-green-800">React 👍</button></form>
-            {{ if eq .UserID $.User.ID }}<details><summary class="cursor-pointer text-green-800">Edit</summary><form hx-patch="/api/messages/{{ .ID }}" class="mt-1"><textarea class="input" name="content" rows="2">{{ .Content }}</textarea><input type="hidden" name="return_to" value="/messages/users/{{ $.DirectUser.ID }}" /><button class="text-green-800 font-bold mt-1">Save</button></form></details><form hx-delete="/api/messages/{{ .ID }}?return_to=/messages/users/{{ $.DirectUser.ID }}"><button class="text-red-700">Delete</button></form>{{ end }}
-          </div>
-        {{ end }}
-      </article>
+      <div class="direct-message-row {{ if eq .UserID $.User.ID }}own{{ end }}">
+        <article id="message-{{ .ID }}" class="direct-message scroll-mt-4">
+          <div class="direct-message-meta">{{ if eq .UserID $.User.ID }}You{{ else }}{{ .UserName }}{{ end }} · {{ .CreatedAt.Format "02 Jan 15:04" }}</div>
+          {{ if .DeletedAt }}<p class="muted italic mt-1">Message removed</p>{{ else }}
+            <div class="card direct-message-bubble p-3"><p class="whitespace-pre-wrap">{{ .Content }}{{ if .EditedAt }} <span class="text-xs muted">edited</span>{{ end }}</p></div>
+            {{ if .Reactions }}<div class="flex flex-wrap gap-1 mt-2 {{ if eq .UserID $.User.ID }}justify-end{{ end }} text-xs">{{ range .Reactions }}<form action="/api/messages/reactions/{{ $message.ID }}" method="post"><input type="hidden" name="reaction" value="{{ .Reaction }}" /><input type="hidden" name="return_to" value="/messages/users/{{ $.DirectUser.ID }}" /><button class="rounded-full border px-2 py-1">{{ .Reaction }} {{ .Count }}</button></form>{{ end }}</div>{{ end }}
+            <div class="flex gap-3 mt-2 text-xs {{ if eq .UserID $.User.ID }}justify-end{{ end }}">
+              <form action="/api/messages/reactions/{{ .ID }}" method="post"><input type="hidden" name="reaction" value="👍" /><input type="hidden" name="return_to" value="/messages/users/{{ $.DirectUser.ID }}" /><button class="text-green-800">React 👍</button></form>
+              {{ if eq .UserID $.User.ID }}<details><summary class="cursor-pointer text-green-800">Edit</summary><form hx-patch="/api/messages/{{ .ID }}" class="mt-1"><textarea class="input" name="content" rows="2">{{ .Content }}</textarea><input type="hidden" name="return_to" value="/messages/users/{{ $.DirectUser.ID }}" /><button class="text-green-800 font-bold mt-1">Save</button></form></details><form hx-delete="/api/messages/{{ .ID }}?return_to=/messages/users/{{ $.DirectUser.ID }}"><button class="text-red-700">Delete</button></form>{{ end }}
+            </div>
+          {{ end }}
+        </article>
+      </div>
     {{ else }}<p class="muted text-center">No direct messages yet.</p>{{ end }}
   </section>
   <form action="/api/messages/users/{{ .DirectUser.ID }}" method="post" class="border-t border-stone-300 pt-4 flex gap-3">
