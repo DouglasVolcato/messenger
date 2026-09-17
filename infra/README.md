@@ -34,11 +34,11 @@ docker-compose.yml
 
 ## Services and network exposure
 
-Only the Nginx load balancer publishes a port on the Docker host. Application processes and infrastructure dependencies stay reachable only inside the `messenger` Docker network.
+The Nginx load balancer listens on the internal Compose network. In Coolify, its domain route targets container port `80`; application processes and infrastructure dependencies remain private.
 
 | Service | Purpose | Network exposure |
 | --- | --- | --- |
-| `load-balancer` | Nginx reverse proxy/load balancer for HTTP and WebSocket replicas | host `${NGINX_PORT:-80}` -> container `80` |
+| `load-balancer` | Nginx reverse proxy/load balancer for HTTP and WebSocket replicas | internal `80` (Coolify domain target) |
 | `server` | Main Go application | internal `8080` |
 | `websocket` | Authenticated WebSocket replicas and Redis connection registry | internal `8080` |
 | `postgres` | Primary durable database with logical replication enabled | internal `5432` |
@@ -66,17 +66,7 @@ Docker Compose uses the repository-root `.env` for interpolation and injects it 
 
 Both Go services listen on internal port `8080` when started by Compose. The Nginx load balancer addresses them through Docker DNS, so host-side ports can change without changing the application listeners.
 
-The single host entrypoint is controlled by:
-
-```env
-NGINX_PORT=8088
-```
-
-The browser WebSocket endpoint is then:
-
-```text
-ws://localhost:8088/ws/notifications
-```
+For local direct access, add a temporary Compose override that publishes host port `8088` to container port `80`. In Coolify, do not publish a host port: configure the domain for `load-balancer` on internal port `80`.
 
 For production TLS termination, use `wss://` at the external proxy/load balancer. If the browser application and WebSocket use different hostnames, configure a comma-separated allowlist:
 
@@ -94,8 +84,8 @@ docker compose up --build
 
 With the default environment:
 
-- HTTP application: `http://localhost`
-- WebSocket: `ws://localhost/ws/notifications`
+- HTTP application: through the configured Coolify domain
+- WebSocket: `wss://<configured-domain>/ws/notifications`
 
 RabbitMQ management, Prometheus, Grafana, PostgreSQL and Redis are intentionally not available directly from the host. Access them from inside the Docker network or add an explicit temporary/debug exposure when required.
 
