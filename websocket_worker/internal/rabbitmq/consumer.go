@@ -14,6 +14,8 @@ const (
 	PriorityHigh   = "high"
 	PriorityNormal = "normal"
 	PriorityLow    = "low"
+	exchangeName   = "notifications"
+	dlqQueueName   = "notifications.dlq"
 )
 
 type PriorityQueue struct {
@@ -69,11 +71,23 @@ func (c *Consumer) Run(ctx context.Context, handler Handler) error {
 		if err := channel.Qos(1, 0, false); err != nil {
 			return fmt.Errorf("configure %s priority prefetch: %w", priorityQueue.Priority, err)
 		}
-		if _, err := channel.QueueDeclare(priorityQueue.Name, true, false, false, false, nil); err != nil {
+
+		if _, err = channel.QueueDeclare(dlqQueueName, true, false, false, false, nil); err != nil {
+			return fmt.Errorf("declare dlq queue: %w", err)
+		}
+		if err := channel.QueueBind(dlqQueueName, dlqQueueName, exchangeName, false, nil); err != nil {
+			return fmt.Errorf("bind dlq queue: %w", err)
+		}
+		queueArgs := amqp.Table{
+			"x-dead-letter-exchange":    exchangeName,
+			"x-dead-letter-routing-key": dlqQueueName,
+		}
+
+		if _, err := channel.QueueDeclare(priorityQueue.Name, true, false, false, false, queueArgs); err != nil {
 			return fmt.Errorf("declare %s priority queue %q: %w", priorityQueue.Priority, priorityQueue.Name, err)
 		}
 
-		deliveries, err := channel.Consume(priorityQueue.Name, "", false, false, false, false, nil)
+		deliveries, err := channel.Consume(priorityQueue.Name, "", false, false, false, false, queueArgs)
 		if err != nil {
 			return fmt.Errorf("consume %s priority queue %q: %w", priorityQueue.Priority, priorityQueue.Name, err)
 		}

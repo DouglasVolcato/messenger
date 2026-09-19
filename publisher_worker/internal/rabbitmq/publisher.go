@@ -9,7 +9,10 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const exchangeName = "notifications"
+const (
+	exchangeName = "notifications"
+	dlqQueueName = "notifications.dlq"
+)
 
 var queueByType = map[string]string{
 	"DIRECT_MESSAGE":     "notifications.direct_message",
@@ -49,13 +52,29 @@ func NewPublisher(url string) (*Publisher, error) {
 		connection.Close()
 		return nil, fmt.Errorf("declare notification exchange: %w", err)
 	}
+
+	if _, err = channel.QueueDeclare(dlqQueueName, true, false, false, false, nil); err != nil {
+		channel.Close()
+		connection.Close()
+		return nil, fmt.Errorf("declare dlq queue: %w", err)
+	}
+	if err := channel.QueueBind(dlqQueueName, dlqQueueName, exchangeName, false, nil); err != nil {
+		channel.Close()
+		connection.Close()
+		return nil, fmt.Errorf("bind dlq queue: %w", err)
+	}
+	queueArgs := amqp.Table{
+		"x-dead-letter-exchange":    exchangeName,
+		"x-dead-letter-routing-key": dlqQueueName,
+	}
+
 	for _, queueName := range queueByType {
-		if _, err := channel.QueueDeclare(queueName, true, false, false, false, nil); err != nil {
+		if _, err := channel.QueueDeclare(queueName, true, false, false, false, queueArgs); err != nil {
 			channel.Close()
 			connection.Close()
 			return nil, fmt.Errorf("declare notification queue %q: %w", queueName, err)
 		}
-		if err := channel.QueueBind(queueName, queueName, exchangeName, false, nil); err != nil {
+		if err := channel.QueueBind(queueName, queueName, exchangeName, false, queueArgs); err != nil {
 			channel.Close()
 			connection.Close()
 			return nil, fmt.Errorf("bind notification queue %q: %w", queueName, err)

@@ -6,6 +6,6 @@ X cache
 X websocket
 X websocket worker
 X notifications
-- dlqs
+X dlqs
 - test with observability
 - kubernetes
