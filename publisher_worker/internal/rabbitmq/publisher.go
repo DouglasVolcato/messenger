@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/models"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -63,18 +64,18 @@ func NewPublisher(url string) (*Publisher, error) {
 		connection.Close()
 		return nil, fmt.Errorf("bind dlq queue: %w", err)
 	}
+
 	queueArgs := amqp.Table{
 		"x-dead-letter-exchange":    exchangeName,
 		"x-dead-letter-routing-key": dlqQueueName,
 	}
-
 	for _, queueName := range queueByType {
 		if _, err := channel.QueueDeclare(queueName, true, false, false, false, queueArgs); err != nil {
 			channel.Close()
 			connection.Close()
 			return nil, fmt.Errorf("declare notification queue %q: %w", queueName, err)
 		}
-		if err := channel.QueueBind(queueName, queueName, exchangeName, false, queueArgs); err != nil {
+		if err := channel.QueueBind(queueName, queueName, exchangeName, false, nil); err != nil {
 			channel.Close()
 			connection.Close()
 			return nil, fmt.Errorf("bind notification queue %q: %w", queueName, err)
@@ -93,29 +94,55 @@ func (p *Publisher) Close() error {
 }
 
 func (p *Publisher) Publish(ctx context.Context, notification models.UserNotificationOutbox) error {
-	queueName, ok := queueByType[notification.Type]
-	if !ok {
-		return fmt.Errorf("unsupported notification type %q", notification.Type)
-	}
-
 	body, err := json.Marshal(notification)
 	if err != nil {
 		return fmt.Errorf("marshal notification %q: %w", notification.ID, err)
 	}
-	if err := p.channel.PublishWithContext(ctx, exchangeName, queueName, true, false, amqp.Publishing{
+
+	queueName, ok := queueByType[notification.Type]
+	if !ok {
+		headers := amqp.Table{
+			"x-dlq-source": "publisher_worker",
+			"x-dlq-reason": "unsupported_notification_type",
+		}
+		if err := p.publishConfirmed(ctx, dlqQueueName, notification, body, headers); err != nil {
+			return fmt.Errorf("publish unsupported notification %q to DLQ: %w", notification.ID, err)
+		}
+		log.Printf("Publisher worker moved notification message_id=%q type=%q to DLQ: unsupported notification type", notification.ID, notification.Type)
+		return nil
+	}
+
+	if err := p.publishConfirmed(ctx, queueName, notification, body, nil); err != nil {
+		return fmt.Errorf("publish notification %q: %w", notification.ID, err)
+	}
+	return nil
+}
+
+func (p *Publisher) publishConfirmed(
+	ctx context.Context,
+	routingKey string,
+	notification models.UserNotificationOutbox,
+	body []byte,
+	headers amqp.Table,
+) error {
+	if err := p.channel.PublishWithContext(ctx, exchangeName, routingKey, true, false, amqp.Publishing{
+		Headers:      headers,
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
 		MessageId:    notification.ID,
 		Type:         notification.Type,
 		Body:         body,
 	}); err != nil {
-		return fmt.Errorf("publish notification %q: %w", notification.ID, err)
+		return err
 	}
 
 	select {
-	case confirmation := <-p.confirms:
+	case confirmation, ok := <-p.confirms:
+		if !ok {
+			return fmt.Errorf("RabbitMQ publisher confirms channel closed")
+		}
 		if !confirmation.Ack {
-			return fmt.Errorf("RabbitMQ rejected notification %q", notification.ID)
+			return fmt.Errorf("RabbitMQ rejected message %q", notification.ID)
 		}
 	case <-ctx.Done():
 		return ctx.Err()
