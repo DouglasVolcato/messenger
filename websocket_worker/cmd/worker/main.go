@@ -102,12 +102,10 @@ func connectRedis(ctx context.Context) error {
 func handleDelivery(ctx context.Context, priorityQueue rabbitmq.PriorityQueue, delivery amqp.Delivery) error {
 	var event notificationEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
-		log.Printf("discarding invalid %s priority event message_id=%q: %v", priorityQueue.Priority, delivery.MessageId, err)
-		return nil
+		return fmt.Errorf("decode %s priority event message_id=%q: %w", priorityQueue.Priority, delivery.MessageId, err)
 	}
 	if event.UserID == "" {
-		log.Printf("discarding %s priority event message_id=%q without user_id", priorityQueue.Priority, delivery.MessageId)
-		return nil
+		return fmt.Errorf("%s priority event message_id=%q is missing user_id", priorityQueue.Priority, delivery.MessageId)
 	}
 
 	sessions, err := loadActiveSessions(ctx, event.UserID)
