@@ -78,16 +78,16 @@ func (c *Consumer) Run(ctx context.Context, handler Handler) error {
 		if err := channel.QueueBind(dlqQueueName, dlqQueueName, exchangeName, false, nil); err != nil {
 			return fmt.Errorf("bind dlq queue: %w", err)
 		}
+
 		queueArgs := amqp.Table{
 			"x-dead-letter-exchange":    exchangeName,
 			"x-dead-letter-routing-key": dlqQueueName,
 		}
-
 		if _, err := channel.QueueDeclare(priorityQueue.Name, true, false, false, false, queueArgs); err != nil {
 			return fmt.Errorf("declare %s priority queue %q: %w", priorityQueue.Priority, priorityQueue.Name, err)
 		}
 
-		deliveries, err := channel.Consume(priorityQueue.Name, "", false, false, false, false, queueArgs)
+		deliveries, err := channel.Consume(priorityQueue.Name, "", false, false, false, false, nil)
 		if err != nil {
 			return fmt.Errorf("consume %s priority queue %q: %w", priorityQueue.Priority, priorityQueue.Name, err)
 		}
@@ -118,10 +118,14 @@ func consumeLoop(ctx context.Context, priorityQueue PriorityQueue, deliveries <-
 
 			if err := handler(ctx, priorityQueue, delivery); err != nil {
 				log.Printf("WebSocket worker failed to process %s priority delivery message_id=%q: %v", priorityQueue.Priority, delivery.MessageId, err)
-				_ = delivery.Nack(false, true)
+				if nackErr := delivery.Nack(false, false); nackErr != nil {
+					log.Printf("WebSocket worker failed to dead-letter %s priority delivery message_id=%q: %v", priorityQueue.Priority, delivery.MessageId, nackErr)
+					return
+				}
 				continue
 			}
 			if err := delivery.Ack(false); err != nil {
+				log.Printf("WebSocket worker failed to ack %s priority delivery message_id=%q: %v", priorityQueue.Priority, delivery.MessageId, err)
 				return
 			}
 		}
