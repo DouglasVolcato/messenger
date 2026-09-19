@@ -34,3 +34,13 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["rabbitmq:15692"]
+
+  # Queue-level metrics for the notification dead-letter queue.
+  # /metrics/detailed keeps per-queue cardinality limited to this DLQ only.
+  - job_name: rabbitmq-dlq
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics]
+      queue: ['^notifications\.dlq$']
+    static_configs:
+      - targets: ["rabbitmq:15692"]

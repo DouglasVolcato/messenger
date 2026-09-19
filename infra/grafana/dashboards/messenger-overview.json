@@ -177,6 +177,74 @@
       ],
       "title": "Server metrics target",
       "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Current number of messages parked in notifications.dlq. Any value above zero means at least one notification failed normal processing and requires investigation.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 7, "w": 8, "x": 0, "y": 28},
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rabbitmq_detailed_queue_messages{job=\"rabbitmq-dlq\",queue=\"notifications.dlq\"})",
+          "legendFormat": "DLQ messages",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Notification DLQ messages",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "Queue-level depth for notifications.dlq, collected through RabbitMQ /metrics/detailed.",
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []},
+      "gridPos": {"h": 7, "w": 16, "x": 8, "y": 28},
+      "id": 10,
+      "options": {
+        "legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rabbitmq_detailed_queue_messages_ready{job=\"rabbitmq-dlq\",queue=\"notifications.dlq\"}",
+          "legendFormat": "ready",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "rabbitmq_detailed_queue_messages_unacked{job=\"rabbitmq-dlq\",queue=\"notifications.dlq\"}",
+          "legendFormat": "unacked",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Notification DLQ depth",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
@@ -188,6 +256,6 @@
   "timezone": "browser",
   "title": "Messenger - Local Architecture Overview",
   "uid": "messenger-local-overview",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }
