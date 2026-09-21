@@ -109,11 +109,12 @@ services:
   load-balancer:
     build:
       context: ./infra/nginx
-      dockerfile: Dockerfile
-    expose:
-      - "80"
+    ports:
+      - "80:80"
     depends_on:
       server:
+        condition: service_healthy
+      websocket:
         condition: service_healthy
     restart: unless-stopped
     networks:
