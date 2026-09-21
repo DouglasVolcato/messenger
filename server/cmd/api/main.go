@@ -10,6 +10,7 @@ import (
 
 	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
+	"github.com/douglasvolcato/messager-architecture-challenge/internal/metrics"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/routes"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
 	"github.com/subosito/gotenv"
@@ -75,10 +76,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	routes.RegisterRoutes(mux, templ, appVersion)
+	mux.Handle("GET /metrics", metrics.Handler(db.DB))
 
 	port := fmt.Sprintf(":%s", os.Getenv("PORT"))
 	fmt.Printf("http://localhost%s\n", port)
-	if err := http.ListenAndServe(port, mux); err != nil {
+	if err := http.ListenAndServe(port, metrics.Middleware(mux)); err != nil {
 		panic(err)
 	}
 }

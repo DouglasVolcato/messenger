@@ -68,6 +68,9 @@ services:
     environment:
       DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
+      METRICS_PORT: 9090
+    expose:
+      - "9090"
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +92,9 @@ services:
       DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
       REDIS_URL: redis://redis:6379
+      METRICS_PORT: 9090
+    expose:
+      - "9090"
     depends_on:
       postgres:
         condition: service_healthy
@@ -269,6 +275,65 @@ services:
       - --nginx.scrape-uri=http://load-balancer:8080/stub_status
     depends_on:
       - load-balancer
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  load-tester:
+    profiles: ["test"]
+    build:
+      context: ./load_test
+      dockerfile: Dockerfile
+    environment:
+      TEST_BASE_URL: http://load-balancer
+      TEST_WS_URL: ws://load-balancer/ws/notifications
+      TEST_METRICS_ADDRESS: :9091
+      TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:-LoadTest123!}
+      TEST_USERS_START: ${TEST_USERS_START:-10}
+      TEST_USERS_MAX: ${TEST_USERS_MAX:-100}
+      TEST_USERS_STEP: ${TEST_USERS_STEP:-10}
+      TEST_RPS_START: ${TEST_RPS_START:-5}
+      TEST_RPS_MAX: ${TEST_RPS_MAX:-50}
+      TEST_RPS_STEP: ${TEST_RPS_STEP:-5}
+      TEST_WS_START: ${TEST_WS_START:-5}
+      TEST_WS_MAX: ${TEST_WS_MAX:-100}
+      TEST_WS_STEP: ${TEST_WS_STEP:-10}
+      TEST_PHASE_DURATION: ${TEST_PHASE_DURATION:-30s}
+      TEST_MAX_CONCURRENCY: ${TEST_MAX_CONCURRENCY:-256}
+    expose:
+      - "9091"
+    depends_on:
+      load-balancer:
+        condition: service_started
+      websocket:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - messenger
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.2
+    privileged: true
+    expose:
+      - "8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - --path.rootfs=/host
+    pid: host
+    expose:
+      - "9100"
+    volumes:
+      - /:/host:ro,rslave
     restart: unless-stopped
     networks:
       - messenger

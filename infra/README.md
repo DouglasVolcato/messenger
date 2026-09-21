@@ -49,6 +49,9 @@ The Nginx load balancer listens on the internal Compose network. In Coolify, its
 | `cdc` | Debezium Server reading PostgreSQL logical replication | internal |
 | `prometheus` | Metrics collection | internal `9090` |
 | `grafana` | Dashboards | internal `3000` |
+| `cadvisor` | Per-container CPU, memory and network metrics | internal `8080` |
+| `node-exporter` | Host resource metrics | internal `9100` |
+| `load-tester` | Optional gradual traffic generator (`test` profile) | internal `9091` |
 
 Exporter containers expose PostgreSQL, Redis and Nginx only inside the Compose network. RabbitMQ exposes Prometheus metrics through its native plugin, also only inside that network.
 
@@ -121,13 +124,29 @@ The WebSocket process handles SIGINT/SIGTERM, closes active upgraded connections
 
 ## Metrics
 
-Prometheus is configured with Docker DNS service discovery for `server`, so when multiple HTTP replicas exist it can scrape each replica independently on port `8080`.
+Prometheus uses Docker DNS service discovery for the scalable Go services:
 
-The current Go HTTP application does not expose `/metrics` yet, so those application targets remain down until instrumentation is added. Infrastructure metrics are available immediately.
+- `server:8080/metrics`
+- `websocket:8080/metrics`
+- `publisher-worker:9090/metrics`
+- `websocket-worker:9090/metrics`
 
-The Nginx exporter exposes load-balancer metrics inside the Compose network.
+This keeps each replica visible as an independent Prometheus target.
 
-Grafana automatically provisions the `Messenger - Local Architecture Overview` dashboard and the Prometheus datasource.
+The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, publisher/outbox pressure and WebSocket-worker throughput.
+
+The Compose stack also includes:
+
+- cAdvisor for per-container CPU, memory and network usage;
+- node-exporter for host CPU/memory/filesystem/network metrics;
+- PostgreSQL exporter;
+- Redis exporter;
+- Nginx exporter;
+- RabbitMQ native Prometheus metrics.
+
+Grafana automatically provisions both `Messenger - Local Architecture Overview` and `Messenger - Load Testing`, together with the Prometheus datasource.
+
+The optional `load-tester` Compose service exposes its own metrics on port `9091` while a test is running. See `load_test/README.md` for usage.
 
 ## Scaling
 
@@ -155,6 +174,26 @@ Database CDC:       PostgreSQL WAL -> Debezium -> Redis Streams
 ```
 
 For a production-like exercise, the CDC sink can later be split onto a dedicated streaming system or dedicated Redis instance so cache failures and CDC retention are not coupled.
+
+## Load testing
+
+The load generator is isolated behind the Compose `test` profile, so normal application startup does not create test traffic.
+
+Start the normal stack first:
+
+```bash
+docker compose up -d --build
+```
+
+Then run the load tester:
+
+```bash
+docker compose --profile test up --build load-tester
+```
+
+It gradually increases generated users, HTTP request rate and active WebSocket connections while Prometheus/Grafana collect both injected-load and system metrics.
+
+For all parameters, generated routes and cleanup guidance, see `load_test/README.md`.
 
 ## Persistent volumes
 

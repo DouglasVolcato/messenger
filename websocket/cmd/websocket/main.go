@@ -18,6 +18,7 @@ import (
 
 	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	grpcapi "github.com/douglasvolcato/messager-architecture-challenge/internal/grpc"
+	"github.com/douglasvolcato/messager-architecture-challenge/internal/metrics"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
 	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/gorilla/websocket"
@@ -114,15 +115,18 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
+	mux.Handle("GET /metrics", metrics.Handler())
 	mux.HandleFunc("/ws/notifications", func(w http.ResponseWriter, r *http.Request) {
 		user, err := utils.GetUserFromCookie(r)
 		if err != nil {
+			metrics.IncAuthFailure()
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			metrics.IncUpgradeFailure()
 			log.Printf("websocket upgrade error: %v", err)
 			return
 		}
@@ -164,6 +168,7 @@ func main() {
 		}
 
 		wsServer.add(client)
+		metrics.ConnectionOpened()
 		go client.writePump()
 		go client.readPump()
 	})
@@ -294,6 +299,7 @@ func (s *socketServer) deliver(userID string, connectionIDs []string, payload []
 	s.mu.Unlock()
 
 	for _, client := range clients {
+		metrics.IncNotificationAttempt()
 		client.SendNotification(payload)
 	}
 }
@@ -362,6 +368,7 @@ func (c *Client) close() {
 		close(c.done)
 		_ = c.conn.Close()
 		c.server.remove(c)
+		metrics.ConnectionClosed()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -437,6 +444,7 @@ func (c *Client) SendNotification(notification []byte) {
 		return
 	case c.send <- notification:
 	default:
+		metrics.IncSlowClient()
 		log.Printf("[SLOW CLIENT] dropping connection for user %s", c.userID)
 		c.close()
 	}
