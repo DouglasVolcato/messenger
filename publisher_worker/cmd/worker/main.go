@@ -10,6 +10,7 @@ import (
 
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/db"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/models"
+	"github.com/douglasvolcato/messager-architecture-challenge/internal/metrics"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/rabbitmq"
 	"github.com/subosito/gotenv"
 )
@@ -28,6 +29,7 @@ func connectRabbitMQ(ctx context.Context, url string) (*rabbitmq.Publisher, erro
 			return publisher, nil
 		}
 
+		metrics.IncRabbitReconnect()
 		fmt.Fprintf(os.Stderr, "RabbitMQ unavailable: %v; retrying in 5s\n", err)
 		select {
 		case <-time.After(5 * time.Second):
@@ -39,8 +41,11 @@ func connectRabbitMQ(ctx context.Context, url string) (*rabbitmq.Publisher, erro
 }
 
 func ProcessNotifications(ctx context.Context, publisher *rabbitmq.Publisher) error {
+	started := time.Now()
+
 	tx, err := db.BeginTransaction(ctx)
 	if err != nil {
+		metrics.IncProcessingError()
 		return err
 	}
 	defer tx.Rollback()
@@ -48,17 +53,26 @@ func ProcessNotifications(ctx context.Context, publisher *rabbitmq.Publisher) er
 	notificationOutbox := &models.UserNotificationOutbox{}
 	notifications, err := notificationOutbox.GetManyWithLock(tx, ctx, batchSize)
 	if err != nil {
+		metrics.IncProcessingError()
 		return err
 	}
 	for _, notification := range notifications {
 		if err := publisher.Publish(ctx, notification); err != nil {
+			metrics.IncProcessingError()
 			return err
 		}
+		metrics.IncPublished(notification.Type)
 		if err := notification.Delete(tx, ctx); err != nil {
+			metrics.IncProcessingError()
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		metrics.IncProcessingError()
+		return err
+	}
+	metrics.ObserveBatch(len(notifications), time.Since(started))
+	return nil
 }
 
 func main() {
@@ -76,6 +90,12 @@ func main() {
 	if err := db.InitDB(); err != nil {
 		panic(err)
 	}
+
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	go metrics.Serve(ctx, ":"+metricsPort, db.DB)
 
 	publisher, err := connectRabbitMQ(ctx, os.Getenv("RABBITMQ_URL"))
 	if err != nil {

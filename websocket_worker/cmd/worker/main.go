@@ -14,6 +14,7 @@ import (
 
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/cache"
 	grpcapi "github.com/douglasvolcato/messager-architecture-challenge/internal/grpc"
+	"github.com/douglasvolcato/messager-architecture-challenge/internal/metrics"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/subosito/gotenv"
@@ -43,6 +44,12 @@ func main() {
 	defer stop()
 
 	loadEnv()
+	metricsPort := strings.TrimSpace(os.Getenv("METRICS_PORT"))
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	go metrics.Serve(ctx, ":"+metricsPort)
+
 	if err := connectRedis(ctx); err != nil {
 		log.Printf("WebSocket worker stopped while connecting to Redis: %v", err)
 		return
@@ -56,6 +63,7 @@ func main() {
 	for ctx.Err() == nil {
 		consumer, err := rabbitmq.NewConsumer(os.Getenv("RABBITMQ_URL"))
 		if err != nil {
+			metrics.IncRabbitReconnect()
 			log.Printf("RabbitMQ unavailable: %v; retrying in %s", err, reconnectDelay)
 			wait(ctx, reconnectDelay)
 			continue
@@ -67,6 +75,7 @@ func main() {
 			log.Printf("close RabbitMQ connection: %v", closeErr)
 		}
 		if err != nil && ctx.Err() == nil {
+			metrics.IncRabbitReconnect()
 			log.Printf("RabbitMQ consumer stopped: %v; reconnecting in %s", err, reconnectDelay)
 			wait(ctx, reconnectDelay)
 		}
@@ -99,7 +108,17 @@ func connectRedis(ctx context.Context) error {
 	}
 }
 
-func handleDelivery(ctx context.Context, priorityQueue rabbitmq.PriorityQueue, delivery amqp.Delivery) error {
+func handleDelivery(ctx context.Context, priorityQueue rabbitmq.PriorityQueue, delivery amqp.Delivery) (err error) {
+	started := time.Now()
+	defer func() {
+		metrics.ObserveProcessing(time.Since(started))
+		if err != nil {
+			metrics.IncFailed(priorityQueue.Priority)
+		} else {
+			metrics.IncProcessed(priorityQueue.Priority)
+		}
+	}()
+
 	var event notificationEvent
 	if err := json.Unmarshal(delivery.Body, &event); err != nil {
 		return fmt.Errorf("decode %s priority event message_id=%q: %w", priorityQueue.Priority, delivery.MessageId, err)
@@ -113,6 +132,7 @@ func handleDelivery(ctx context.Context, priorityQueue rabbitmq.PriorityQueue, d
 		return fmt.Errorf("read WebSocket sessions for user %q: %w", event.UserID, err)
 	}
 
+	metrics.AddSessions(len(sessions))
 	if err := deliverToWebSocketServers(ctx, event, sessions); err != nil {
 		return err
 	}
@@ -144,8 +164,10 @@ func deliverToWebSocketServers(ctx context.Context, event notificationEvent, ses
 		}
 
 		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		metrics.IncGRPCCall()
 		connection, err := grpc.DialContext(callCtx, address, grpc.WithBlock(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
+			metrics.IncGRPCFailure()
 			cancel()
 			return fmt.Errorf("connect to WebSocket server %q gRPC endpoint %q: %w", serverID, address, err)
 		}
@@ -164,6 +186,7 @@ func deliverToWebSocketServers(ctx context.Context, event notificationEvent, ses
 		closeErr := connection.Close()
 		cancel()
 		if err != nil {
+			metrics.IncGRPCFailure()
 			return fmt.Errorf("deliver notification to WebSocket server %q: %w", serverID, err)
 		}
 		if closeErr != nil {
