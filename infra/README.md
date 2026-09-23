@@ -184,6 +184,17 @@ docker compose \
 
 `storage_opt.size` depends on Docker storage-driver quota support and limits the container writable layer, not named persistent volumes. If the host storage driver does not support writable-layer quotas, run without this override or configure storage quotas at the host/volume layer.
 
+For a fully constrained load-test run, include the tester-specific storage override as well:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.resources.yml \
+  -f docker-compose.test.yml \
+  -f docker-compose.test.resources.yml \
+  up --build load-tester
+```
+
 ## Kubernetes lab
 
 The `k8s/` directory contains the equivalent core architecture with Services for HTTP and WebSocket replica balancing, CPU/memory/`ephemeral-storage` requests and limits, and a separate load-test Job. See `k8s/README.md`.
