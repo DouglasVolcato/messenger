@@ -22,6 +22,15 @@ var supportedTypes = map[string]struct{}{
 	"COMPANY_MEMBERSHIP": {},
 }
 
+type realtimeEvent struct {
+	ID        string  `json:"id"`
+	UserID    string  `json:"user_id"`
+	Type      string  `json:"type"`
+	Title     *string `json:"title"`
+	Content   string  `json:"content"`
+	ActionURL *string `json:"action_url"`
+}
+
 type Publisher struct {
 	connection *amqp.Connection
 	channel    *amqp.Channel
@@ -82,7 +91,14 @@ func (p *Publisher) Close() error {
 }
 
 func (p *Publisher) Publish(ctx context.Context, notification models.UserNotificationOutbox) error {
-	body, err := json.Marshal(notification)
+	body, err := json.Marshal(realtimeEvent{
+		ID:        notification.ID,
+		UserID:    notification.UserID,
+		Type:      notification.Type,
+		Title:     notification.Title,
+		Content:   notification.Content,
+		ActionURL: notification.ActionURL,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal notification %q: %w", notification.ID, err)
 	}
