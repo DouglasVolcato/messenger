@@ -11,14 +11,15 @@ import (
 )
 
 const (
-	exchangeName = "notifications"
-	dlqQueueName = "notifications.dlq"
+	realtimeExchangeName   = "notifications.realtime"
+	deadLetterExchangeName = "notifications.deadletter"
+	dlqQueueName           = "notifications.dlq"
 )
 
-var queueByType = map[string]string{
-	"DIRECT_MESSAGE":     "notifications.direct_message",
-	"CHAT_MESSAGE":       "notifications.chat_message",
-	"COMPANY_MEMBERSHIP": "notifications.company_membership",
+var supportedTypes = map[string]struct{}{
+	"DIRECT_MESSAGE":     {},
+	"CHAT_MESSAGE":       {},
+	"COMPANY_MEMBERSHIP": {},
 }
 
 type Publisher struct {
@@ -38,48 +39,35 @@ func NewPublisher(url string) (*Publisher, error) {
 	}
 	channel, err := connection.Channel()
 	if err != nil {
-		connection.Close()
+		_ = connection.Close()
 		return nil, fmt.Errorf("open RabbitMQ channel: %w", err)
 	}
 	if err := channel.Confirm(false); err != nil {
-		channel.Close()
-		connection.Close()
+		_ = channel.Close()
+		_ = connection.Close()
 		return nil, fmt.Errorf("enable RabbitMQ publisher confirms: %w", err)
 	}
 	confirms := channel.NotifyPublish(make(chan amqp.Confirmation, 1))
 
-	if err := channel.ExchangeDeclare(exchangeName, amqp.ExchangeDirect, true, false, false, false, nil); err != nil {
-		channel.Close()
-		connection.Close()
-		return nil, fmt.Errorf("declare notification exchange: %w", err)
+	if err := channel.ExchangeDeclare(realtimeExchangeName, amqp.ExchangeFanout, true, false, false, false, nil); err != nil {
+		_ = channel.Close()
+		_ = connection.Close()
+		return nil, fmt.Errorf("declare realtime notification exchange: %w", err)
 	}
-
+	if err := channel.ExchangeDeclare(deadLetterExchangeName, amqp.ExchangeDirect, true, false, false, false, nil); err != nil {
+		_ = channel.Close()
+		_ = connection.Close()
+		return nil, fmt.Errorf("declare notification dead-letter exchange: %w", err)
+	}
 	if _, err = channel.QueueDeclare(dlqQueueName, true, false, false, false, nil); err != nil {
-		channel.Close()
-		connection.Close()
+		_ = channel.Close()
+		_ = connection.Close()
 		return nil, fmt.Errorf("declare dlq queue: %w", err)
 	}
-	if err := channel.QueueBind(dlqQueueName, dlqQueueName, exchangeName, false, nil); err != nil {
-		channel.Close()
-		connection.Close()
+	if err := channel.QueueBind(dlqQueueName, dlqQueueName, deadLetterExchangeName, false, nil); err != nil {
+		_ = channel.Close()
+		_ = connection.Close()
 		return nil, fmt.Errorf("bind dlq queue: %w", err)
-	}
-
-	queueArgs := amqp.Table{
-		"x-dead-letter-exchange":    exchangeName,
-		"x-dead-letter-routing-key": dlqQueueName,
-	}
-	for _, queueName := range queueByType {
-		if _, err := channel.QueueDeclare(queueName, true, false, false, false, queueArgs); err != nil {
-			channel.Close()
-			connection.Close()
-			return nil, fmt.Errorf("declare notification queue %q: %w", queueName, err)
-		}
-		if err := channel.QueueBind(queueName, queueName, exchangeName, false, nil); err != nil {
-			channel.Close()
-			connection.Close()
-			return nil, fmt.Errorf("bind notification queue %q: %w", queueName, err)
-		}
 	}
 
 	return &Publisher{connection: connection, channel: channel, confirms: confirms}, nil
@@ -87,7 +75,7 @@ func NewPublisher(url string) (*Publisher, error) {
 
 func (p *Publisher) Close() error {
 	if err := p.channel.Close(); err != nil {
-		p.connection.Close()
+		_ = p.connection.Close()
 		return err
 	}
 	return p.connection.Close()
@@ -99,33 +87,34 @@ func (p *Publisher) Publish(ctx context.Context, notification models.UserNotific
 		return fmt.Errorf("marshal notification %q: %w", notification.ID, err)
 	}
 
-	queueName, ok := queueByType[notification.Type]
-	if !ok {
+	if _, ok := supportedTypes[notification.Type]; !ok {
 		headers := amqp.Table{
 			"x-dlq-source": "publisher_worker",
 			"x-dlq-reason": "unsupported_notification_type",
 		}
-		if err := p.publishConfirmed(ctx, dlqQueueName, notification, body, headers); err != nil {
+		if err := p.publishConfirmed(ctx, deadLetterExchangeName, dlqQueueName, notification, body, headers, true); err != nil {
 			return fmt.Errorf("publish unsupported notification %q to DLQ: %w", notification.ID, err)
 		}
 		log.Printf("Publisher worker moved notification message_id=%q type=%q to DLQ: unsupported notification type", notification.ID, notification.Type)
 		return nil
 	}
 
-	if err := p.publishConfirmed(ctx, queueName, notification, body, nil); err != nil {
-		return fmt.Errorf("publish notification %q: %w", notification.ID, err)
+	if err := p.publishConfirmed(ctx, realtimeExchangeName, "", notification, body, nil, false); err != nil {
+		return fmt.Errorf("publish realtime notification %q: %w", notification.ID, err)
 	}
 	return nil
 }
 
 func (p *Publisher) publishConfirmed(
 	ctx context.Context,
+	exchange string,
 	routingKey string,
 	notification models.UserNotificationOutbox,
 	body []byte,
 	headers amqp.Table,
+	mandatory bool,
 ) error {
-	if err := p.channel.PublishWithContext(ctx, exchangeName, routingKey, true, false, amqp.Publishing{
+	if err := p.channel.PublishWithContext(ctx, exchange, routingKey, mandatory, false, amqp.Publishing{
 		Headers:      headers,
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
