@@ -17,6 +17,8 @@ stringData:
   RABBITMQ_DEFAULT_PASS: messager
   JWT_SECRET: local-development-secret
   PASSWORD_SALT: local-development-salt
+  DB_URL: postgres://messager:messager@postgres:5432/messager?sslmode=disable
+  RABBITMQ_URL: amqp://messager:messager@rabbitmq:5672/
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -295,7 +297,10 @@ spec:
             - name: PORT
               value: "8080"
             - name: DB_URL
-              value: postgres://messager:messager@postgres:5432/messager?sslmode=disable
+              valueFrom:
+                secretKeyRef:
+                  name: messenger-secrets
+                  key: DB_URL
             - name: MIGRATIONS_DIR
               value: migrations
             - name: JWT_SECRET
@@ -378,7 +383,10 @@ spec:
                   name: messenger-secrets
                   key: JWT_SECRET
             - name: RABBITMQ_URL
-              value: amqp://messager:messager@rabbitmq:5672/
+              valueFrom:
+                secretKeyRef:
+                  name: messenger-secrets
+                  key: RABBITMQ_URL
             - name: WEBSOCKET_ALLOWED_ORIGINS
               value: ""
           ports:
@@ -442,9 +450,15 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_URL
-              value: postgres://messager:messager@postgres:5432/messager?sslmode=disable
+              valueFrom:
+                secretKeyRef:
+                  name: messenger-secrets
+                  key: DB_URL
             - name: RABBITMQ_URL
-              value: amqp://messager:messager@rabbitmq:5672/
+              valueFrom:
+                secretKeyRef:
+                  name: messenger-secrets
+                  key: RABBITMQ_URL
             - name: METRICS_PORT
               value: "9090"
           ports:
@@ -611,6 +625,3 @@ spec:
     - name: http
       port: 80
       targetPort: 80
-    - name: status
-      port: 8080
-      targetPort: 8080
