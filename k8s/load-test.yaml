@@ -34,13 +34,13 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: TEST_BASE_URL
-              value: http://load-balancer
+              value: "http://load-balancer"
             - name: TEST_WS_URL
-              value: ws://load-balancer/ws/notifications
+              value: "ws://load-balancer/ws/notifications"
             - name: TEST_METRICS_ADDRESS
-              value: :9091
+              value: ":9091"
             - name: TEST_USER_PASSWORD
-              value: LoadTest123!
+              value: "LoadTest123!"
             - name: TEST_USERS_START
               value: "10"
             - name: TEST_USERS_MAX
@@ -60,7 +60,7 @@ spec:
             - name: TEST_WS_STEP
               value: "10"
             - name: TEST_PHASE_DURATION
-              value: 30s
+              value: "30s"
             - name: TEST_MAX_CONCURRENCY
               value: "256"
           ports:
