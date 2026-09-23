@@ -27,6 +27,12 @@ services:
       TEST_MAX_CONCURRENCY: ${TEST_MAX_CONCURRENCY:-256}
     ports:
       - "9091:9091"
+    cpus: "1.0"
+    mem_limit: 512M
+    memswap_limit: 512M
+    pids_limit: 256
+    storage_opt:
+      size: "512M"
     depends_on:
       load-balancer:
         condition: service_started
@@ -43,15 +49,11 @@ services:
   websocket:
     ports:
       - "8089:8080"
-      - "9094:9090"
 
   publisher-worker:
     ports:
       - "9092:9090"
 
-  websocket-worker:
-    ports:
-      - "9093:9090"
 
   load-balancer:
     ports:
