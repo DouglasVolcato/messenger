@@ -31,8 +31,6 @@ services:
     mem_limit: 512M
     memswap_limit: 512M
     pids_limit: 256
-    storage_opt:
-      size: "512M"
     depends_on:
       load-balancer:
         condition: service_started
