@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,42 +14,30 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/douglasvolcato/messager-architecture-challenge/cache"
-	grpcapi "github.com/douglasvolcato/messager-architecture-challenge/internal/grpc"
+	rabbitmq "github.com/douglasvolcato/messager-architecture-challenge/internal/rabbitmq"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/metrics"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
-	"github.com/golang/protobuf/ptypes/empty"
 	"github.com/gorilla/websocket"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (
-	defaultPort     = "8080"
-	writeWait       = 5 * time.Second
-	pongWait        = 30 * time.Second
-	pingPeriod      = (pongWait * 9) / 10
-	sendBuffer      = 64
-	redisTTL        = 45 * time.Second
-	defaultGRPCPort = "9090"
-	registryTTL     = 90 * time.Second
+	defaultPort       = "8080"
+	writeWait         = 5 * time.Second
+	pongWait          = 30 * time.Second
+	pingPeriod        = (pongWait * 9) / 10
+	sendBuffer        = 64
+	rabbitReconnect   = 5 * time.Second
 )
 
 type socketServer struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	clients map[string]*Client
-}
-
-type grpcDeliveryServer struct {
-	grpcapi.UnimplementedWebSocketDeliveryServer
-	socketServer *socketServer
+	byUser  map[string]map[string]*Client
 }
 
 type Client struct {
 	userID       string
 	connectionID string
-	serverID     string
 	conn         *websocket.Conn
 	send         chan []byte
 	done         chan struct{}
@@ -59,22 +45,19 @@ type Client struct {
 	server       *socketServer
 }
 
+type outboundNotification struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Title     string `json:"title,omitempty"`
+	Content   string `json:"content"`
+	ActionURL string `json:"action_url,omitempty"`
+}
+
 func main() {
-	serverID, err := utils.GenerateUUID()
-	if err != nil {
-		log.Fatalf("failed to generate server ID: %v", err)
+	wsServer := &socketServer{
+		clients: make(map[string]*Client),
+		byUser:  make(map[string]map[string]*Client),
 	}
-
-	if err := cache.InitRedisClient(); err != nil {
-		log.Fatalf("failed to initialize Redis client: %v", err)
-	}
-	defer func() {
-		if err := cache.CloseRedisClient(); err != nil {
-			log.Printf("failed to close Redis client: %v", err)
-		}
-	}()
-
-	wsServer := &socketServer{clients: make(map[string]*Client)}
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -84,34 +67,7 @@ func main() {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	grpcPort := strings.TrimSpace(os.Getenv("WEBSOCKET_GRPC_PORT"))
-	if grpcPort == "" {
-		grpcPort = defaultGRPCPort
-	}
-	grpcListener, err := net.Listen("tcp4", ":"+grpcPort)
-	if err != nil {
-		log.Fatalf("start gRPC listener: %v", err)
-	}
-	grpcServer := grpc.NewServer()
-	grpcapi.RegisterWebSocketDeliveryServer(grpcServer, &grpcDeliveryServer{socketServer: wsServer})
-
-	grpcAddress, err := privateAddress(grpcPort)
-	if err != nil {
-		log.Fatalf("resolve gRPC address: %v", err)
-	}
-	if err := registerGRPCEndpoint(shutdownCtx, serverID, grpcAddress); err != nil {
-		log.Fatalf("register gRPC endpoint: %v", err)
-	}
-	defer func() {
-		_ = cache.RDB.Del(context.Background(), grpcRegistryKey(serverID)).Err()
-	}()
-	go refreshGRPCEndpoint(shutdownCtx, serverID, grpcAddress)
-	go func() {
-		log.Printf("WebSocket server %s gRPC listening on %s", serverID, grpcAddress)
-		if err := grpcServer.Serve(grpcListener); err != nil {
-			log.Printf("gRPC server stopped: %v", err)
-		}
-	}()
+	go consumeRealtimeNotifications(shutdownCtx, wsServer)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthHandler)
@@ -141,30 +97,10 @@ func main() {
 		client := &Client{
 			userID:       user.ID,
 			connectionID: connID,
-			serverID:     serverID,
 			conn:         conn,
 			send:         make(chan []byte, sendBuffer),
 			done:         make(chan struct{}),
 			server:       wsServer,
-		}
-
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		redisKey := fmt.Sprintf("user:sessions:%s", user.ID)
-		expiresAt := time.Now().Add(redisTTL).Unix()
-		fieldValue := fmt.Sprintf("%s:%d", serverID, expiresAt)
-
-		if err := cache.RDB.HSet(ctx, redisKey, connID, fieldValue).Err(); err != nil {
-			log.Printf("failed to save session in Redis: %v", err)
-			_ = conn.Close()
-			return
-		}
-		if err := cache.RDB.Expire(ctx, redisKey, 7*24*time.Hour).Err(); err != nil {
-			log.Printf("failed to set session registry expiration: %v", err)
-			_ = cache.RDB.HDel(context.Background(), redisKey, connID).Err()
-			_ = conn.Close()
-			return
 		}
 
 		wsServer.add(client)
@@ -187,7 +123,7 @@ func main() {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("WebSocket server %s listening on :%s", serverID, port)
+		log.Printf("WebSocket server listening on :%s", port)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 		}
@@ -200,7 +136,7 @@ func main() {
 			log.Fatalf("websocket server failed: %v", err)
 		}
 	case <-shutdownCtx.Done():
-		log.Printf("shutting down WebSocket server %s", serverID)
+		log.Printf("shutting down WebSocket server")
 	}
 
 	gracefulCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -208,17 +144,59 @@ func main() {
 	if err := httpServer.Shutdown(gracefulCtx); err != nil {
 		log.Printf("HTTP shutdown error: %v", err)
 	}
-	grpcServer.GracefulStop()
 	wsServer.closeAll()
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
-	defer cancel()
-	if err := cache.RDB.Ping(ctx).Err(); err != nil {
-		http.Error(w, "redis unavailable", http.StatusServiceUnavailable)
-		return
+func consumeRealtimeNotifications(ctx context.Context, wsServer *socketServer) {
+	for ctx.Err() == nil {
+		consumer, err := rabbitmq.NewConsumer(os.Getenv("RABBITMQ_URL"))
+		if err != nil {
+			metrics.IncRabbitReconnect()
+			log.Printf("RabbitMQ unavailable for WebSocket replica: %v; retrying in %s", err, rabbitReconnect)
+			if !wait(ctx, rabbitReconnect) {
+				return
+			}
+			continue
+		}
+
+		log.Printf("WebSocket replica consuming RabbitMQ fanout queue %s", consumer.QueueName())
+		err = consumer.Run(ctx, func(_ context.Context, event rabbitmq.Event) error {
+			return deliverRealtimeEvent(wsServer, event)
+		})
+		if closeErr := consumer.Close(); closeErr != nil && ctx.Err() == nil {
+			log.Printf("close WebSocket RabbitMQ consumer: %v", closeErr)
+		}
+		if ctx.Err() != nil {
+			return
+		}
+
+		metrics.IncRabbitReconnect()
+		log.Printf("WebSocket RabbitMQ consumer stopped: %v; reconnecting in %s", err, rabbitReconnect)
+		if !wait(ctx, rabbitReconnect) {
+			return
+		}
 	}
+}
+
+func deliverRealtimeEvent(wsServer *socketServer, event rabbitmq.Event) error {
+	payload, err := json.Marshal(outboundNotification{
+		ID:        event.ID,
+		Type:      event.Type,
+		Title:     stringValue(event.Title),
+		Content:   event.Content,
+		ActionURL: stringValue(event.ActionURL),
+	})
+	if err != nil {
+		metrics.IncRealtimeEventFailure()
+		return err
+	}
+
+	delivered := wsServer.deliver(event.UserID, payload)
+	metrics.IncRealtimeEvent(delivered)
+	return nil
+}
+
+func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
@@ -265,102 +243,53 @@ func isAllowedOrigin(r *http.Request) bool {
 func (s *socketServer) add(c *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.clients[c.connectionID] = c
+	if s.byUser[c.userID] == nil {
+		s.byUser[c.userID] = make(map[string]*Client)
+	}
+	s.byUser[c.userID][c.connectionID] = c
 }
 
 func (s *socketServer) remove(c *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	delete(s.clients, c.connectionID)
+	userConnections := s.byUser[c.userID]
+	delete(userConnections, c.connectionID)
+	if len(userConnections) == 0 {
+		delete(s.byUser, c.userID)
+	}
 }
 
 func (s *socketServer) closeAll() {
-	s.mu.Lock()
+	s.mu.RLock()
 	clients := make([]*Client, 0, len(s.clients))
 	for _, client := range s.clients {
 		clients = append(clients, client)
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	for _, client := range clients {
 		client.close()
 	}
 }
 
-func (s *socketServer) deliver(userID string, connectionIDs []string, payload []byte) {
-	s.mu.Lock()
-	clients := make([]*Client, 0, len(connectionIDs))
-	for _, connectionID := range connectionIDs {
-		client, ok := s.clients[connectionID]
-		if ok && client.userID == userID {
-			clients = append(clients, client)
-		}
+func (s *socketServer) deliver(userID string, payload []byte) int {
+	s.mu.RLock()
+	userConnections := s.byUser[userID]
+	clients := make([]*Client, 0, len(userConnections))
+	for _, client := range userConnections {
+		clients = append(clients, client)
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	for _, client := range clients {
 		metrics.IncNotificationAttempt()
 		client.SendNotification(payload)
 	}
-}
-
-func (s *grpcDeliveryServer) Deliver(_ context.Context, request *grpcapi.DeliveryRequest) (*empty.Empty, error) {
-	if request.GetUserId() == "" || len(request.GetConnectionIds()) == 0 || request.GetNotification() == nil {
-		return nil, status.Error(codes.InvalidArgument, "user_id, connection_ids and notification are required")
-	}
-
-	payload, err := json.Marshal(request.GetNotification())
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "marshal notification: %v", err)
-	}
-	s.socketServer.deliver(request.GetUserId(), request.GetConnectionIds(), payload)
-	return &empty.Empty{}, nil
-}
-
-func grpcRegistryKey(serverID string) string {
-	return "websocket:server:" + serverID + ":grpc"
-}
-
-func registerGRPCEndpoint(ctx context.Context, serverID, address string) error {
-	return cache.RDB.Set(ctx, grpcRegistryKey(serverID), address, registryTTL).Err()
-}
-
-func refreshGRPCEndpoint(ctx context.Context, serverID, address string) {
-	ticker := time.NewTicker(registryTTL / 3)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := registerGRPCEndpoint(ctx, serverID, address); err != nil {
-				log.Printf("refresh gRPC endpoint for WebSocket server %s: %v", serverID, err)
-			}
-		}
-	}
-}
-
-func privateAddress(port string) (string, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
-	}
-	for _, networkInterface := range interfaces {
-		if networkInterface.Flags&net.FlagUp == 0 || networkInterface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addresses, err := networkInterface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, address := range addresses {
-			ip, _, err := net.ParseCIDR(address.String())
-			if err == nil && ip.To4() != nil && !ip.IsLoopback() {
-				return net.JoinHostPort(ip.String(), port), nil
-			}
-		}
-	}
-	return "", errors.New("no private IPv4 address found")
+	return len(clients)
 }
 
 func (c *Client) close() {
@@ -369,13 +298,6 @@ func (c *Client) close() {
 		_ = c.conn.Close()
 		c.server.remove(c)
 		metrics.ConnectionClosed()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		redisKey := fmt.Sprintf("user:sessions:%s", c.userID)
-		if err := cache.RDB.HDel(ctx, redisKey, c.connectionID).Err(); err != nil {
-			log.Printf("failed to remove WebSocket session %s: %v", c.connectionID, err)
-		}
 	})
 }
 
@@ -385,8 +307,6 @@ func (c *Client) writePump() {
 		ticker.Stop()
 		c.close()
 	}()
-
-	redisKey := fmt.Sprintf("user:sessions:%s", c.userID)
 
 	for {
 		select {
@@ -404,16 +324,6 @@ func (c *Client) writePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				return
-			}
-
-			expiresAt := time.Now().Add(redisTTL).Unix()
-			fieldValue := fmt.Sprintf("%s:%d", c.serverID, expiresAt)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			err := cache.RDB.HSet(ctx, redisKey, c.connectionID, fieldValue).Err()
-			cancel()
-			if err != nil {
-				log.Printf("failed to refresh WebSocket session %s: %v", c.connectionID, err)
 				return
 			}
 		}
@@ -447,5 +357,23 @@ func (c *Client) SendNotification(notification []byte) {
 		metrics.IncSlowClient()
 		log.Printf("[SLOW CLIENT] dropping connection for user %s", c.userID)
 		c.close()
+	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func wait(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }

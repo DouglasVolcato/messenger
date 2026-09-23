@@ -37,15 +37,13 @@ services:
       - .env
     environment:
       PORT: 8080
-      WEBSOCKET_GRPC_PORT: 9090
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
-      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
       WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-}
     expose:
       - "8080"
-      - "9090"
     depends_on:
-      redis:
+      rabbitmq:
         condition: service_healthy
     init: true
     restart: unless-stopped
@@ -73,32 +71,6 @@ services:
       - "9090"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - messenger
-
-  websocket-worker:
-    build:
-      context: ./websocket_worker
-      dockerfile: Dockerfile
-    env_file:
-      - .env
-    environment:
-      DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379
-      METRICS_PORT: 9090
-    expose:
-      - "9090"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy

@@ -36,7 +36,7 @@
       "id": 3,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"editorMode": "code", "expr": "count by (job) (up{job=~\"server|websocket|publisher-worker|websocket-worker\"} == 1)", "legendFormat": "{{job}}", "range": true, "refId": "A"}
+        {"editorMode": "code", "expr": "count by (job) (up{job=~\"server|websocket|publisher-worker\"} == 1)", "legendFormat": "{{job}}", "range": true, "refId": "A"}
       ],
       "title": "Healthy application replicas",
       "type": "timeseries"
@@ -146,10 +146,11 @@
       "id": 12,
       "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
       "targets": [
-        {"editorMode": "code", "expr": "sum by (priority) (rate(websocket_worker_events_processed_total[1m]))", "legendFormat": "processed {{priority}}", "range": true, "refId": "A"},
-        {"editorMode": "code", "expr": "sum by (priority) (rate(websocket_worker_events_failed_total[1m]))", "legendFormat": "failed {{priority}}", "range": true, "refId": "B"}
+        {"editorMode": "code", "expr": "sum(rate(websocket_realtime_events_received_total[1m]))", "legendFormat": "fanout received", "range": true, "refId": "A"},
+        {"editorMode": "code", "expr": "sum(rate(websocket_realtime_events_delivered_total[1m]))", "legendFormat": "matched local client", "range": true, "refId": "B"},
+        {"editorMode": "code", "expr": "sum(rate(websocket_realtime_events_no_local_connection_total[1m]))", "legendFormat": "ignored on replica", "range": true, "refId": "C"}
       ],
-      "title": "WebSocket worker throughput",
+      "title": "WebSocket fanout throughput",
       "type": "timeseries"
     },
     {

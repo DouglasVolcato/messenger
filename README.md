@@ -207,12 +207,12 @@ The final architecture is expected to exercise:
 - horizontal application replicas;
 - load balancing;
 - persistent realtime connections;
-- connection registries with TTL;
 - database caching;
 - transactional outbox;
 - publisher workers;
 - event queues with at-least-once delivery;
-- priority isolation;
+- RabbitMQ fanout to every live WebSocket replica;
+- per-replica ephemeral consumer queues;
 - retries and backoff;
 - dead-letter queues;
 - idempotent consumers;
@@ -243,16 +243,14 @@ Application Server
       Publisher Workers
              |
              v
-         Event Queues
+  RabbitMQ Fanout Exchange
              |
-             v
-      Realtime Workers
-             |
-             v
-     Connection Registry
-             |
-             v
-     WebSocket Replicas
+      +------+------+
+      |      |      |
+      v      v      v
+     WS1    WS2    WS3
+      |      |      |
+      +-- local connection maps
              |
              v
            Client
