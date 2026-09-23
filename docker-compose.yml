@@ -37,15 +37,13 @@ services:
       - .env
     environment:
       PORT: 8080
-      WEBSOCKET_GRPC_PORT: 9090
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
-      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
       WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-}
     expose:
       - "8080"
-      - "9090"
     depends_on:
-      redis:
+      rabbitmq:
         condition: service_healthy
     init: true
     restart: unless-stopped
@@ -73,8 +71,6 @@ services:
       - "9090"
     depends_on:
       postgres:
-        condition: service_healthy
-      redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
