@@ -108,8 +108,7 @@ Optionally scale the application before the test:
 docker compose up -d \
   --scale server=3 \
   --scale websocket=3 \
-  --scale publisher-worker=2 \
-  --scale websocket-worker=2
+  --scale publisher-worker=2
 ```
 
 Then start the tester profile:
@@ -268,7 +267,7 @@ It contains the initial views for:
 - memory by Compose service;
 - network RX/TX by Compose service;
 - publisher outbox backlog and oldest-event age;
-- WebSocket worker throughput/failures;
+- WebSocket fanout events received, locally matched and ignored per replica;
 - RabbitMQ backlog;
 - server DB pool usage;
 - host CPU.
@@ -286,6 +285,23 @@ The Compose stack now includes:
 - application metrics from the Go services.
 
 The application services are scraped separately through Docker DNS, so scaled replicas remain visible individually.
+
+## Running with Kubernetes
+
+The `k8s/` directory contains a Kubernetes version of the same test environment. Start the core architecture first:
+
+```bash
+kubectl apply -f k8s/messenger.yaml
+```
+
+After the application Pods are ready, run the tester:
+
+```bash
+kubectl apply -f k8s/load-test.yaml
+kubectl -n messenger logs -f job/messenger-load-tester
+```
+
+The Job uses the same `TEST_*` environment model as Compose and exposes metrics through the `load-tester` Service on port `9091`. To rerun after changing parameters, delete and recreate the Job because the Pod template is immutable.
 
 ## Resetting test data
 
