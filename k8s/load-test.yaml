@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: load-tester
+  namespace: messenger
+spec:
+  selector:
+    app: load-tester
+  ports:
+    - name: metrics
+      port: 9091
+      targetPort: 9091
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: messenger-load-tester
+  namespace: messenger
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: load-tester
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: "/metrics"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: load-tester
+          image: messenger-load-tester:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TEST_BASE_URL
+              value: http://load-balancer
+            - name: TEST_WS_URL
+              value: ws://load-balancer/ws/notifications
+            - name: TEST_METRICS_ADDRESS
+              value: :9091
+            - name: TEST_USER_PASSWORD
+              value: LoadTest123!
+            - name: TEST_USERS_START
+              value: "10"
+            - name: TEST_USERS_MAX
+              value: "100"
+            - name: TEST_USERS_STEP
+              value: "10"
+            - name: TEST_RPS_START
+              value: "5"
+            - name: TEST_RPS_MAX
+              value: "50"
+            - name: TEST_RPS_STEP
+              value: "5"
+            - name: TEST_WS_START
+              value: "5"
+            - name: TEST_WS_MAX
+              value: "100"
+            - name: TEST_WS_STEP
+              value: "10"
+            - name: TEST_PHASE_DURATION
+              value: 30s
+            - name: TEST_MAX_CONCURRENCY
+              value: "256"
+          ports:
+            - containerPort: 9091
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
+              ephemeral-storage: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+              ephemeral-storage: "512Mi"
