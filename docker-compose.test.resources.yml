@@ -1,0 +1,14 @@
+# Optional writable-layer storage quota for the load tester.
+# Use only on Docker storage drivers that support storage_opt.size.
+#
+# Example:
+# docker compose \
+#   -f docker-compose.yml \
+#   -f docker-compose.resources.yml \
+#   -f docker-compose.test.yml \
+#   -f docker-compose.test.resources.yml \
+#   up --build load-tester
+services:
+  load-tester:
+    storage_opt:
+      size: "512M"
