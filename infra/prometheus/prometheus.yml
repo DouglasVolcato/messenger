@@ -34,14 +34,6 @@ scrape_configs:
         port: 9090
         refresh_interval: 5s
 
-  - job_name: websocket-worker
-    metrics_path: /metrics
-    dns_sd_configs:
-      - names: ["websocket-worker"]
-        type: A
-        port: 9090
-        refresh_interval: 5s
-
   - job_name: load-tester
     metrics_path: /metrics
     dns_sd_configs:
