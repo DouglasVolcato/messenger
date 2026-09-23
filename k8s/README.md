@@ -2,6 +2,8 @@
 
 These manifests reproduce the core Messenger runtime in Kubernetes while keeping the same load-test model used by Docker Compose.
 
+> The Secret values in `messenger.yaml` are lab-only credentials for local k3d/k3s experiments. Replace them with proper secret management before using these manifests outside an isolated development environment.
+
 ## Architecture
 
 ```text
