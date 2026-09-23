@@ -40,7 +40,7 @@ The Nginx load balancer listens on the internal Compose network. In Coolify, its
 | --- | --- | --- |
 | `load-balancer` | Nginx reverse proxy/load balancer for HTTP and WebSocket replicas | internal `80` (Coolify domain target) |
 | `server` | Main Go application | internal `8080` |
-| `websocket` | Authenticated WebSocket replicas and Redis connection registry | internal `8080` |
+| `websocket` | Authenticated WebSocket replicas with an embedded RabbitMQ fanout consumer | internal `8080` |
 | `postgres` | Primary durable database with logical replication enabled | internal `5432` |
 | `redis` | Cache and WebSocket connection registry | internal `6379` |
 | `rabbitmq` | Processing/event queues | internal `5672` |
@@ -109,18 +109,15 @@ GET /healthz
 GET /ws/notifications   (HTTP Upgrade)
 ```
 
-`/ws/notifications` authenticates the existing `user` JWT cookie before upgrading the connection. Each accepted connection receives a unique connection ID and is registered in Redis as:
+`/ws/notifications` authenticates the existing `user` JWT cookie before upgrading the connection. Each replica keeps an in-memory index from `user_id` to the live connections currently attached to that replica.
 
-```text
-user:sessions:<user_id>
-  <connection_id> -> <websocket_server_id>:<expires_at>
-```
+Each WebSocket replica also owns an exclusive, auto-delete RabbitMQ queue bound to the durable `notifications.realtime` fanout exchange. The publisher worker publishes each supported notification once. RabbitMQ copies that event to every live WebSocket replica. A replica sends the notification to all matching local connections for the target user and ignores the event when that user is connected elsewhere.
 
-The connection registry is refreshed during the ping/pong heartbeat. The expiry timestamp allows future realtime workers to ignore stale connection records after a WebSocket replica crash.
+This allows the same user to be connected to multiple WebSocket replicas at the same time without a Redis connection registry or replica-to-replica gRPC delivery.
 
-The Nginx load balancer routes `/ws/` to WebSocket replicas using `least_conn`, disables proxy buffering, forwards the required upgrade headers and uses longer proxy read/send timeouts than normal HTTP traffic.
+The Nginx load balancer routes `/ws/` to WebSocket replicas using `least_conn`, disables proxy buffering, forwards the required upgrade headers and uses longer proxy read/send timeouts than normal HTTP traffic. Existing upgraded connections remain attached to the replica that accepted them until disconnect.
 
-The WebSocket process handles SIGINT/SIGTERM, closes active upgraded connections and removes their Redis session records during graceful shutdown.
+The WebSocket process handles SIGINT/SIGTERM and closes active upgraded connections during graceful shutdown.
 
 ## Metrics
 
@@ -129,11 +126,10 @@ Prometheus uses Docker DNS service discovery for the scalable Go services:
 - `server:8080/metrics`
 - `websocket:8080/metrics`
 - `publisher-worker:9090/metrics`
-- `websocket-worker:9090/metrics`
 
 This keeps each replica visible as an independent Prometheus target.
 
-The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, publisher/outbox pressure and WebSocket-worker throughput.
+The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, publisher/outbox pressure and per-replica RabbitMQ fanout throughput.
 
 The Compose stack also includes:
 
@@ -160,7 +156,7 @@ The Nginx load balancer uses Docker DNS and automatic upstream hostname re-resol
 
 Server startup migrations are protected by a PostgreSQL transaction-level advisory lock. If several HTTP replicas start simultaneously, only one applies migrations while the others wait and then observe the already-applied migration records.
 
-The WebSocket worker consumes RabbitMQ queues with one loop per priority: direct messages are high priority, chat messages normal priority and company membership events low priority. For each event it reads the active sessions from Redis, resolves the matching WebSocket server's internal gRPC endpoint and calls it directly. The server delivers the notification only to the listed live connections.
+Each WebSocket replica consumes its own exclusive queue bound to the RabbitMQ fanout exchange. The queue exists only for the lifetime of that replica. Every realtime event reaches every live WebSocket replica, and each replica performs only a local `user_id` lookup before deciding whether it has any sockets to notify.
 
 ## CDC
 
@@ -174,6 +170,23 @@ Database CDC:       PostgreSQL WAL -> Debezium -> Redis Streams
 ```
 
 For a production-like exercise, the CDC sink can later be split onto a dedicated streaming system or dedicated Redis instance so cache failures and CDC retention are not coupled.
+
+## Resource limits
+
+The base Compose file remains portable. Optional CPU, memory, PID and writable-layer storage limits live in `docker-compose.resources.yml`:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.resources.yml \
+  up -d --build
+```
+
+`storage_opt.size` depends on Docker storage-driver quota support and limits the container writable layer, not named persistent volumes. If the host storage driver does not support writable-layer quotas, run without this override or configure storage quotas at the host/volume layer.
+
+## Kubernetes lab
+
+The `k8s/` directory contains the equivalent core architecture with Services for HTTP and WebSocket replica balancing, CPU/memory/`ephemeral-storage` requests and limits, and a separate load-test Job. See `k8s/README.md`.
 
 ## Load testing
 
