@@ -115,7 +115,10 @@ docker compose up -d \
 Then start the tester profile:
 
 ```bash
-docker compose --profile test up --build load-tester
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
+  up --build load-tester
 ```
 
 The tester exits when the final phase finishes.
@@ -158,7 +161,10 @@ TEST_WS_START=100 \
 TEST_WS_MAX=5000 \
 TEST_WS_STEP=500 \
 TEST_PHASE_DURATION=2m \
-docker compose --profile test up --build load-tester
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
+  up --build load-tester
 ```
 
 Increase these values gradually. The tester can become the bottleneck if `TEST_MAX_CONCURRENCY` or the machine running it is too small.

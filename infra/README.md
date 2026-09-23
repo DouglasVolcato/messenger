@@ -188,7 +188,10 @@ docker compose up -d --build
 Then run the load tester:
 
 ```bash
-docker compose --profile test up --build load-tester
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
+  up --build load-tester
 ```
 
 It gradually increases generated users, HTTP request rate and active WebSocket connections while Prometheus/Grafana collect both injected-load and system metrics.
