@@ -208,11 +208,12 @@ The final architecture is expected to exercise:
 - load balancing;
 - persistent realtime connections;
 - database caching;
+- Redis-backed connection registries with TTL;
 - transactional outbox;
 - publisher workers;
 - event queues with at-least-once delivery;
-- RabbitMQ fanout to every live WebSocket replica;
-- per-replica ephemeral consumer queues;
+- WebSocket routing workers;
+- per-replica RabbitMQ delivery queues;
 - retries and backoff;
 - dead-letter queues;
 - idempotent consumers;
@@ -243,17 +244,28 @@ Application Server
       Publisher Workers
              |
              v
-  RabbitMQ Fanout Exchange
-             |
-      +------+------+
-      |      |      |
-      v      v      v
-     WS1    WS2    WS3
-      |      |      |
-      +-- local connection maps
+   Notification Work Queues
              |
              v
-           Client
+      WebSocket Workers
+             |
+       +-----+------+
+       |            |
+       v            v
+ Redis session   RabbitMQ direct
+ registry        delivery exchange
+       |            |
+       +-------> replica routing
+                    |
+             +------+------+
+             |      |      |
+             v      v      v
+            WS1    WS2    WS3
+             |      |      |
+             +-- local connection maps
+                    |
+                    v
+                  Client
 ```
 
 The database remains the authoritative durable state. Realtime delivery exists to reduce latency, not to replace durable history.

@@ -1,0 +1,31 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "mkdir -p ./tmp && go mod tidy && go build -o ./tmp/app ./cmd/worker"
+
+  bin = "./tmp/app"
+  entrypoint = ["./tmp/app"]
+
+  include_ext = ["go", "html", "css", "js", "tmpl", "tpl"]
+  exclude_dir = ["tmp", "vendor", ".git", "node_modules"]
+
+  poll = true
+  poll_interval = 500
+
+  delay = 1000
+  stop_on_error = true
+  send_interrupt = true
+  kill_delay = 500
+
+[log]
+  time = true
+
+[color]
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  clean_on_exit = true

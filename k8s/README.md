@@ -18,13 +18,33 @@ server Service       websocket Service
         |                  |
  server replicas      WebSocket replicas
                            |
-                    one exclusive RabbitMQ
-                    fanout queue per replica
+                   Redis session registry
+                           ^
+                           |
+publisher-worker -> notification work queues
+                           |
+                           v
+                   websocket-worker replicas
+                           |
+                           v
+                 websocket.delivery exchange
+                    /         |         \
+                   v          v          v
+             replica queue replica queue replica queue
+                   |          |          |
+                   v          v          v
+               WS Pod A   WS Pod B   WS Pod C
 ```
 
-The Kubernetes Services are the stable load-balancing layer for the HTTP and WebSocket replica sets. The Nginx edge only separates normal HTTP traffic from WebSocket upgrades.
+The Kubernetes Services remain the stable load-balancing layer for HTTP and WebSocket traffic. The Nginx edge separates normal HTTP requests from WebSocket upgrades.
 
-Realtime notifications are published once to the durable `notifications.realtime` fanout exchange. Every live WebSocket replica has its own exclusive, auto-delete queue. Each replica consumes every realtime event and only sends it to matching users connected locally.
+Each WebSocket Pod receives `WEBSOCKET_REPLICA_ID` from `metadata.name` using the downward API. Active connections are registered in Redis as `user:sessions:<user_id>` fields containing the connection ID, Pod/replica ID and an explicit expiration timestamp.
+
+Each WebSocket Pod also creates one exclusive, auto-delete RabbitMQ queue named from its replica ID and refreshes a short-lived Redis replica-presence key.
+
+The publisher worker writes notification events to the shared priority work queues. `websocket-worker` replicas compete for those queues, resolve the target user's current Redis sessions, group connections by replica ID and publish one targeted delivery command per WebSocket replica.
+
+This avoids broadcasting every event to every WebSocket Pod while also avoiding direct Pod-to-Pod gRPC addressing.
 
 ## Build local images
 
@@ -34,6 +54,7 @@ For a local k3d/k3s lab:
 docker build -t messenger-server:local ./server
 docker build -t messenger-websocket:local ./websocket
 docker build -t messenger-publisher-worker:local ./publisher_worker
+docker build -t messenger-websocket-worker:local ./websocket_worker
 docker build -t messenger-load-tester:local ./load_test
 ```
 
@@ -44,6 +65,7 @@ k3d image import \
   messenger-server:local \
   messenger-websocket:local \
   messenger-publisher-worker:local \
+  messenger-websocket-worker:local \
   messenger-load-tester:local \
   -c <cluster-name>
 ```
@@ -60,6 +82,7 @@ The lab manifest starts with:
 - 3 HTTP server replicas;
 - 3 WebSocket replicas;
 - 2 publisher-worker replicas;
+- 2 websocket-worker replicas;
 - PostgreSQL, Redis and RabbitMQ;
 - a Kubernetes Service for each scalable component;
 - an Nginx edge exposed through the `load-balancer` Service.
@@ -90,9 +113,10 @@ kubectl apply -f k8s/load-test.yaml
 kubectl -n messenger scale deployment/server --replicas=5
 kubectl -n messenger scale deployment/websocket --replicas=5
 kubectl -n messenger scale deployment/publisher-worker --replicas=3
+kubectl -n messenger scale deployment/websocket-worker --replicas=4
 ```
 
-Existing WebSocket connections remain attached to the Pod that accepted them. New connections are distributed through the `websocket` Service. RabbitMQ fanout means every currently live WebSocket Pod receives each realtime notification event, so a user may receive it on multiple devices/connections even when those connections live on different replicas.
+Existing WebSocket connections remain attached to the Pod that accepted them. New connections are distributed through the `websocket` Service. Redis tracks which replica owns each live connection. WebSocket workers use that registry to route each notification only to the RabbitMQ queues of replicas that currently host the target user's connections.
 
 ## Resource experiments
 

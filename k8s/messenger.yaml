@@ -382,6 +382,12 @@ spec:
                 secretKeyRef:
                   name: messenger-secrets
                   key: JWT_SECRET
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: WEBSOCKET_REPLICA_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: RABBITMQ_URL
               valueFrom:
                 secretKeyRef:
@@ -393,13 +399,13 @@ spec:
             - containerPort: 8080
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -486,6 +492,75 @@ metadata:
 spec:
   selector:
     app: publisher-worker
+  ports:
+    - port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: websocket-worker
+  namespace: messenger
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: websocket-worker
+  template:
+    metadata:
+      labels:
+        app: websocket-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: websocket-worker
+          image: messenger-websocket-worker:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: messenger-secrets
+                  key: RABBITMQ_URL
+            - name: REDIS_URL
+              value: redis://redis:6379
+            - name: METRICS_PORT
+              value: "9090"
+          ports:
+            - containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9090
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+              ephemeral-storage: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+              ephemeral-storage: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: websocket-worker
+  namespace: messenger
+spec:
+  selector:
+    app: websocket-worker
   ports:
     - port: 9090
       targetPort: 9090

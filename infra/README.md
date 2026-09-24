@@ -4,7 +4,7 @@ This directory contains the infrastructure used by `docker-compose.yml` for the 
 
 ## Repository layout
 
-The HTTP application and WebSocket service live in independent Go subprojects so they can be built and scaled separately:
+The HTTP application, WebSocket service and asynchronous workers live in independent Go subprojects so they can be built and scaled separately:
 
 ```text
 server/
@@ -21,6 +21,12 @@ websocket/
   cmd/
   cache/
   pkg/
+
+websocket_worker/
+  Dockerfile
+  go.mod
+  cmd/
+  internal/
 
 infra/
   nginx/
@@ -40,9 +46,11 @@ The Nginx load balancer listens on the internal Compose network. In Coolify, its
 | --- | --- | --- |
 | `load-balancer` | Nginx reverse proxy/load balancer for HTTP and WebSocket replicas | internal `80` (Coolify domain target) |
 | `server` | Main Go application | internal `8080` |
-| `websocket` | Authenticated WebSocket replicas with an embedded RabbitMQ fanout consumer | internal `8080` |
+| `websocket` | Authenticated WebSocket replicas with Redis session registration and a per-replica RabbitMQ delivery queue | internal `8080` |
+| `publisher-worker` | Reads notification outbox rows and publishes them to shared notification work queues | internal `9090` |
+| `websocket-worker` | Resolves active sessions in Redis and routes notifications to the correct WebSocket replica queue; metrics/readiness on the same internal listener | internal `9090` |
 | `postgres` | Primary durable database with logical replication enabled | internal `5432` |
-| `redis` | Cache and WebSocket connection registry | internal `6379` |
+| `redis` | Application cache plus WebSocket connection/replica registry with TTL | internal `6379` |
 | `rabbitmq` | Processing/event queues | internal `5672` |
 | RabbitMQ management | Queue administration UI | internal `15672` |
 | RabbitMQ metrics | Native Prometheus metrics | internal `15692` |
@@ -67,7 +75,7 @@ Docker Compose uses the repository-root `.env` for interpolation and injects it 
 
 `DB_URL` is deliberately overridden by Compose so the HTTP server connects to `postgres:5432` over the Docker network instead of using the host-local `localhost` value from `.env`.
 
-Both Go services listen on internal port `8080` when started by Compose. The Nginx load balancer addresses them through Docker DNS, so host-side ports can change without changing the application listeners.
+The HTTP server and WebSocket frontend listen on internal port `8080` when started by Compose. The Nginx load balancer addresses them through Docker DNS, so host-side ports can change without changing the application listeners.
 
 For local direct access, add a temporary Compose override that publishes host port `8088` to container port `80`. In Coolify, do not publish a host port: configure the domain for `load-balancer` on internal port `80`.
 
@@ -96,7 +104,7 @@ The default Grafana credentials come from `GRAFANA_ADMIN_USER` and `GRAFANA_ADMI
 
 ## Application builds
 
-Compose builds the HTTP server from `./server` and the WebSocket service from `./websocket`. Each Dockerfile is self-contained and may only copy files from its own build context.
+Compose builds the HTTP server from `./server`, the WebSocket service from `./websocket`, the publisher from `./publisher_worker` and the routing worker from `./websocket_worker`. Each Dockerfile is self-contained and may only copy files from its own build context.
 
 The WebSocket runtime image only contains the compiled WebSocket binary. Views, migrations and static files belong to the HTTP server and are not copied into the WebSocket image.
 
@@ -105,19 +113,78 @@ The WebSocket runtime image only contains the compiled WebSocket binary. Views, 
 The WebSocket process exposes:
 
 ```text
-GET /healthz
-GET /ws/notifications   (HTTP Upgrade)
+GET /livez             (process liveness)
+GET /readyz            (Redis + RabbitMQ delivery readiness)
+GET /healthz           (Compose-compatible readiness alias)
+GET /ws/notifications  (HTTP Upgrade)
 ```
 
-`/ws/notifications` authenticates the existing `user` JWT cookie before upgrading the connection. Each replica keeps an in-memory index from `user_id` to the live connections currently attached to that replica.
+`/ws/notifications` authenticates the existing `user` JWT cookie before upgrading the connection.
 
-Each WebSocket replica also owns an exclusive, auto-delete RabbitMQ queue bound to the durable `notifications.realtime` fanout exchange. The publisher worker publishes each supported notification once. RabbitMQ copies that event to every live WebSocket replica. A replica sends the notification to all matching local connections for the target user and ignores the event when that user is connected elsewhere.
+Each WebSocket replica has a replica ID. In Kubernetes the ID is injected from the Pod name through the downward API; in Docker Compose/local execution the process generates a UUID.
 
-This allows the same user to be connected to multiple WebSocket replicas at the same time without a Redis connection registry or replica-to-replica gRPC delivery.
+Every accepted connection is registered in Redis as:
+
+```text
+user:sessions:<user_id>
+  <connection_id> -> <replica_id>:<expires_at>
+```
+
+The session expiration timestamp is refreshed during the WebSocket heartbeat. The Redis hash also receives a key TTL, so abandoned registry data cannot live forever after replica/process failures.
+
+A live WebSocket replica also publishes its own short-lived presence key:
+
+```text
+websocket:replica:<replica_id> -> <rabbitmq_queue_name>
+```
+
+and owns one exclusive, auto-delete RabbitMQ queue:
+
+```text
+websocket.delivery.<replica_id>
+```
+
+bound to the durable direct exchange `websocket.delivery` with routing key `<replica_id>`.
+
+Realtime delivery therefore has two RabbitMQ stages:
+
+```text
+server transaction
+      |
+      v
+notification outbox
+      |
+      v
+publisher-worker
+      |
+      v
+notifications.direct_message
+notifications.chat_message
+notifications.company_membership
+      |
+      v
+websocket-worker
+      |
+      +--> Redis: resolve active connection IDs + replica IDs
+      |
+      v
+websocket.delivery exchange
+      |
+      +--> websocket.delivery.<replica-A>
+      +--> websocket.delivery.<replica-B>
+      +--> websocket.delivery.<replica-C>
+                    |
+                    v
+             local sockets only
+```
+
+Multiple `websocket-worker` replicas compete for the shared notification work queues. A worker processes each notification once, resolves the user's active sessions in Redis, groups connection IDs by replica, and publishes one delivery command per target replica.
+
+This keeps routing explicit without requiring direct Pod-to-Pod gRPC. When Kubernetes creates a new WebSocket Pod, that Pod gets a new replica ID, registers its Redis presence and declares its own RabbitMQ delivery queue. When it disappears, the exclusive queue is removed and its Redis presence/session entries expire through TTL.
 
 The Nginx load balancer routes `/ws/` to WebSocket replicas using `least_conn`, disables proxy buffering, forwards the required upgrade headers and uses longer proxy read/send timeouts than normal HTTP traffic. Existing upgraded connections remain attached to the replica that accepted them until disconnect.
 
-The WebSocket process handles SIGINT/SIGTERM and closes active upgraded connections during graceful shutdown.
+The WebSocket process handles SIGINT/SIGTERM, closes active upgraded connections and removes connection registry entries during graceful shutdown.
 
 ## Metrics
 
@@ -126,10 +193,11 @@ Prometheus uses Docker DNS service discovery for the scalable Go services:
 - `server:8080/metrics`
 - `websocket:8080/metrics`
 - `publisher-worker:9090/metrics`
+- `websocket-worker:9090/metrics`
 
 This keeps each replica visible as an independent Prometheus target.
 
-The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, publisher/outbox pressure and per-replica RabbitMQ fanout throughput.
+The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, publisher/outbox pressure, Redis-resolved WebSocket sessions and per-replica RabbitMQ routing throughput.
 
 The Compose stack also includes:
 
@@ -149,14 +217,14 @@ The optional `load-tester` Compose service exposes its own metrics on port `9091
 The application services intentionally have no `container_name`, so Compose can create multiple replicas:
 
 ```bash
-docker compose up --build --scale server=3 --scale websocket=3
+docker compose up --build --scale server=3 --scale websocket=3 --scale publisher-worker=2 --scale websocket-worker=2
 ```
 
 The Nginx load balancer uses Docker DNS and automatic upstream hostname re-resolution for both service pools. New replicas can therefore be discovered without hard-coding container IPs.
 
 Server startup migrations are protected by a PostgreSQL transaction-level advisory lock. If several HTTP replicas start simultaneously, only one applies migrations while the others wait and then observe the already-applied migration records.
 
-Each WebSocket replica consumes its own exclusive queue bound to the RabbitMQ fanout exchange. The queue exists only for the lifetime of that replica. Every realtime event reaches every live WebSocket replica, and each replica performs only a local `user_id` lookup before deciding whether it has any sockets to notify.
+WebSocket replicas register their active sessions in Redis with TTL. The WebSocket workers consume the shared notification work queues, resolve the target user's live sessions, group them by replica ID and publish a targeted delivery command to that replica's exclusive RabbitMQ queue. This lets WebSocket and worker replicas scale independently without broadcasting every notification to every WebSocket replica.
 
 ## CDC
 
@@ -197,7 +265,7 @@ docker compose \
 
 ## Kubernetes lab
 
-The `k8s/` directory contains the equivalent core architecture with Services for HTTP and WebSocket replica balancing, CPU/memory/`ephemeral-storage` requests and limits, and a separate load-test Job. See `k8s/README.md`.
+The `k8s/` directory contains the equivalent core architecture with Services for HTTP, WebSocket and WebSocket-worker metrics, CPU/memory/`ephemeral-storage` requests and limits, Pod-name WebSocket replica IDs, and a separate load-test Job. See `k8s/README.md`.
 
 ## Load testing
 

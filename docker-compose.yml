@@ -38,11 +38,14 @@ services:
     environment:
       PORT: 8080
       JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      REDIS_URL: redis://redis:6379
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
       WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-}
     expose:
       - "8080"
     depends_on:
+      redis:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     init: true
@@ -75,6 +78,35 @@ services:
       rabbitmq:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - messenger
+
+  websocket-worker:
+    build:
+      context: ./websocket_worker
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379
+      METRICS_PORT: 9090
+    expose:
+      - "9090"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/readyz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - messenger
 

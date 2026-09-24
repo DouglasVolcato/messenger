@@ -8,18 +8,16 @@ import (
 )
 
 var (
-	activeConnections            atomic.Int64
-	connectionsTotal             atomic.Uint64
-	disconnectionsTotal          atomic.Uint64
-	authFailuresTotal            atomic.Uint64
-	upgradeFailuresTotal         atomic.Uint64
-	slowClientsTotal             atomic.Uint64
-	notificationAttemptsTotal    atomic.Uint64
-	realtimeEventsReceivedTotal  atomic.Uint64
-	realtimeEventsDeliveredTotal atomic.Uint64
-	realtimeEventsNoLocalTotal   atomic.Uint64
-	realtimeEventFailuresTotal   atomic.Uint64
-	rabbitMQReconnectsTotal      atomic.Uint64
+	activeConnections         atomic.Int64
+	connectionsTotal          atomic.Uint64
+	disconnectionsTotal       atomic.Uint64
+	authFailuresTotal         atomic.Uint64
+	upgradeFailuresTotal      atomic.Uint64
+	slowClientsTotal          atomic.Uint64
+	notificationAttemptsTotal atomic.Uint64
+	deliveryCommandsTotal     atomic.Uint64
+	deliveryFailuresTotal     atomic.Uint64
+	rabbitMQReconnectsTotal   atomic.Uint64
 )
 
 func ConnectionOpened() {
@@ -50,17 +48,12 @@ func IncNotificationAttempt() {
 	notificationAttemptsTotal.Add(1)
 }
 
-func IncRealtimeEvent(localDeliveries int) {
-	realtimeEventsReceivedTotal.Add(1)
-	if localDeliveries > 0 {
-		realtimeEventsDeliveredTotal.Add(1)
-		return
-	}
-	realtimeEventsNoLocalTotal.Add(1)
+func IncDeliveryCommand() {
+	deliveryCommandsTotal.Add(1)
 }
 
-func IncRealtimeEventFailure() {
-	realtimeEventFailuresTotal.Add(1)
+func IncDeliveryFailure() {
+	deliveryFailuresTotal.Add(1)
 }
 
 func IncRabbitReconnect() {
@@ -70,6 +63,7 @@ func IncRabbitReconnect() {
 func Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+
 		fmt.Fprintln(w, "# HELP websocket_connections_active Active upgraded WebSocket connections on this replica.")
 		fmt.Fprintln(w, "# TYPE websocket_connections_active gauge")
 		fmt.Fprintf(w, "websocket_connections_active %d\n", activeConnections.Load())
@@ -90,7 +84,7 @@ func Handler() http.Handler {
 		fmt.Fprintln(w, "# TYPE websocket_upgrade_failures_total counter")
 		fmt.Fprintf(w, "websocket_upgrade_failures_total %d\n", upgradeFailuresTotal.Load())
 
-		fmt.Fprintln(w, "# HELP websocket_slow_client_disconnects_total Connections dropped because the send buffer was full.")
+		fmt.Fprintln(w, "# HELP websocket_slow_client_disconnects_total Connections dropped because the local send buffer was full.")
 		fmt.Fprintln(w, "# TYPE websocket_slow_client_disconnects_total counter")
 		fmt.Fprintf(w, "websocket_slow_client_disconnects_total %d\n", slowClientsTotal.Load())
 
@@ -98,21 +92,13 @@ func Handler() http.Handler {
 		fmt.Fprintln(w, "# TYPE websocket_notification_delivery_attempts_total counter")
 		fmt.Fprintf(w, "websocket_notification_delivery_attempts_total %d\n", notificationAttemptsTotal.Load())
 
-		fmt.Fprintln(w, "# HELP websocket_realtime_events_received_total Fanout events consumed by this WebSocket replica.")
-		fmt.Fprintln(w, "# TYPE websocket_realtime_events_received_total counter")
-		fmt.Fprintf(w, "websocket_realtime_events_received_total %d\n", realtimeEventsReceivedTotal.Load())
+		fmt.Fprintln(w, "# HELP websocket_delivery_commands_total Per-replica RabbitMQ delivery commands consumed.")
+		fmt.Fprintln(w, "# TYPE websocket_delivery_commands_total counter")
+		fmt.Fprintf(w, "websocket_delivery_commands_total %d\n", deliveryCommandsTotal.Load())
 
-		fmt.Fprintln(w, "# HELP websocket_realtime_events_delivered_total Fanout events that matched at least one local WebSocket connection.")
-		fmt.Fprintln(w, "# TYPE websocket_realtime_events_delivered_total counter")
-		fmt.Fprintf(w, "websocket_realtime_events_delivered_total %d\n", realtimeEventsDeliveredTotal.Load())
-
-		fmt.Fprintln(w, "# HELP websocket_realtime_events_no_local_connection_total Fanout events ignored because the target user had no connection on this replica.")
-		fmt.Fprintln(w, "# TYPE websocket_realtime_events_no_local_connection_total counter")
-		fmt.Fprintf(w, "websocket_realtime_events_no_local_connection_total %d\n", realtimeEventsNoLocalTotal.Load())
-
-		fmt.Fprintln(w, "# HELP websocket_realtime_event_failures_total Realtime fanout events that failed local processing.")
-		fmt.Fprintln(w, "# TYPE websocket_realtime_event_failures_total counter")
-		fmt.Fprintf(w, "websocket_realtime_event_failures_total %d\n", realtimeEventFailuresTotal.Load())
+		fmt.Fprintln(w, "# HELP websocket_delivery_failures_total Per-replica RabbitMQ delivery commands that failed local processing.")
+		fmt.Fprintln(w, "# TYPE websocket_delivery_failures_total counter")
+		fmt.Fprintf(w, "websocket_delivery_failures_total %d\n", deliveryFailuresTotal.Load())
 
 		fmt.Fprintln(w, "# HELP websocket_rabbitmq_reconnects_total RabbitMQ reconnect attempts made by this WebSocket replica.")
 		fmt.Fprintln(w, "# TYPE websocket_rabbitmq_reconnects_total counter")

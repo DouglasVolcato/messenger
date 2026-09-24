@@ -8,4 +8,4 @@ X websocket worker
 X notifications
 X dlqs
 - test with observability
-- kubernetes
+X kubernetes
