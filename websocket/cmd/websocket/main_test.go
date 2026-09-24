@@ -5,11 +5,8 @@ import (
 	"testing"
 )
 
-func TestSocketServerDeliverTargetsOnlyMatchingLocalConnections(t *testing.T) {
-	server := &socketServer{
-		clients: make(map[string]*Client),
-		byUser:  make(map[string]map[string]*Client),
-	}
+func TestSocketServerDeliverTargetsOnlyRequestedLocalConnections(t *testing.T) {
+	server := &socketServer{clients: make(map[string]*Client)}
 
 	newClient := func(userID, connectionID string) *Client {
 		return &Client{
@@ -29,7 +26,7 @@ func TestSocketServerDeliverTargetsOnlyMatchingLocalConnections(t *testing.T) {
 	server.add(other)
 
 	payload := []byte(`{"id":"notification-1"}`)
-	if delivered := server.deliver("user-a", payload); delivered != 2 {
+	if delivered := server.deliver("user-a", []string{"connection-a1", "connection-a2", "connection-b1"}, payload); delivered != 2 {
 		t.Fatalf("expected 2 local deliveries, got %d", delivered)
 	}
 

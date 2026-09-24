@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -11,9 +12,11 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/douglasvolcato/messager-architecture-challenge/cache"
 	rabbitmq "github.com/douglasvolcato/messager-architecture-challenge/internal/rabbitmq"
 	"github.com/douglasvolcato/messager-architecture-challenge/internal/metrics"
 	utils "github.com/douglasvolcato/messager-architecture-challenge/pkg"
@@ -21,23 +24,26 @@ import (
 )
 
 const (
-	defaultPort       = "8080"
-	writeWait         = 5 * time.Second
-	pongWait          = 30 * time.Second
-	pingPeriod        = (pongWait * 9) / 10
-	sendBuffer        = 64
-	rabbitReconnect   = 5 * time.Second
+	defaultPort          = "8080"
+	writeWait            = 5 * time.Second
+	pongWait             = 30 * time.Second
+	pingPeriod           = (pongWait * 9) / 10
+	sendBuffer           = 64
+	sessionTTL           = 45 * time.Second
+	sessionRegistryTTL   = 7 * 24 * time.Hour
+	replicaRegistryTTL   = 90 * time.Second
+	rabbitReconnectDelay = 5 * time.Second
 )
 
 type socketServer struct {
 	mu      sync.RWMutex
 	clients map[string]*Client
-	byUser  map[string]map[string]*Client
 }
 
 type Client struct {
 	userID       string
 	connectionID string
+	replicaID    string
 	conn         *websocket.Conn
 	send         chan []byte
 	done         chan struct{}
@@ -45,19 +51,26 @@ type Client struct {
 	server       *socketServer
 }
 
-type outboundNotification struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Title     string `json:"title,omitempty"`
-	Content   string `json:"content"`
-	ActionURL string `json:"action_url,omitempty"`
-}
-
 func main() {
-	wsServer := &socketServer{
-		clients: make(map[string]*Client),
-		byUser:  make(map[string]map[string]*Client),
+	replicaID := strings.TrimSpace(os.Getenv("WEBSOCKET_REPLICA_ID"))
+	if replicaID == "" {
+		generatedID, err := utils.GenerateUUID()
+		if err != nil {
+			log.Fatalf("generate WebSocket replica ID: %v", err)
+		}
+		replicaID = generatedID
 	}
+
+	if err := cache.InitRedisClient(); err != nil {
+		log.Fatalf("initialize WebSocket Redis registry: %v", err)
+	}
+	defer func() {
+		if err := cache.CloseRedisClient(); err != nil {
+			log.Printf("close WebSocket Redis client: %v", err)
+		}
+	}()
+
+	wsServer := &socketServer{clients: make(map[string]*Client)}
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -67,12 +80,24 @@ func main() {
 	shutdownCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go consumeRealtimeNotifications(shutdownCtx, wsServer)
+	var deliveryReady atomic.Bool
+	go consumeReplicaDeliveries(shutdownCtx, replicaID, wsServer, &deliveryReady)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", healthHandler)
 	mux.Handle("GET /metrics", metrics.Handler())
+	mux.HandleFunc("/livez", liveHandler)
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		readinessHandler(w, r, &deliveryReady)
+	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		readinessHandler(w, r, &deliveryReady)
+	})
 	mux.HandleFunc("/ws/notifications", func(w http.ResponseWriter, r *http.Request) {
+		if !deliveryReady.Load() {
+			http.Error(w, "WebSocket delivery route unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
 		user, err := utils.GetUserFromCookie(r)
 		if err != nil {
 			metrics.IncAuthFailure()
@@ -87,20 +112,30 @@ func main() {
 			return
 		}
 
-		connID, err := utils.GenerateUUID()
+		connectionID, err := utils.GenerateUUID()
 		if err != nil {
-			log.Printf("failed to generate connection ID: %v", err)
+			log.Printf("generate WebSocket connection ID: %v", err)
 			_ = conn.Close()
 			return
 		}
 
 		client := &Client{
 			userID:       user.ID,
-			connectionID: connID,
+			connectionID: connectionID,
+			replicaID:    replicaID,
 			conn:         conn,
 			send:         make(chan []byte, sendBuffer),
 			done:         make(chan struct{}),
 			server:       wsServer,
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		err = registerSession(ctx, client)
+		cancel()
+		if err != nil {
+			log.Printf("register WebSocket session %s: %v", connectionID, err)
+			_ = conn.Close()
+			return
 		}
 
 		wsServer.add(client)
@@ -123,7 +158,7 @@ func main() {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Printf("WebSocket server listening on :%s", port)
+		log.Printf("WebSocket replica %s listening on :%s", replicaID, port)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 		}
@@ -133,11 +168,14 @@ func main() {
 	select {
 	case err := <-serveErr:
 		if err != nil {
-			log.Fatalf("websocket server failed: %v", err)
+			log.Fatalf("WebSocket server failed: %v", err)
 		}
 	case <-shutdownCtx.Done():
-		log.Printf("shutting down WebSocket server")
+		log.Printf("shutting down WebSocket replica %s", replicaID)
 	}
+
+	deliveryReady.Store(false)
+	_ = cache.RDB.Del(context.Background(), replicaRegistryKey(replicaID)).Err()
 
 	gracefulCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -147,22 +185,49 @@ func main() {
 	wsServer.closeAll()
 }
 
-func consumeRealtimeNotifications(ctx context.Context, wsServer *socketServer) {
+func consumeReplicaDeliveries(ctx context.Context, replicaID string, wsServer *socketServer, ready *atomic.Bool) {
 	for ctx.Err() == nil {
-		consumer, err := rabbitmq.NewConsumer(os.Getenv("RABBITMQ_URL"))
+		consumer, err := rabbitmq.NewConsumer(os.Getenv("RABBITMQ_URL"), replicaID)
 		if err != nil {
+			ready.Store(false)
 			metrics.IncRabbitReconnect()
-			log.Printf("RabbitMQ unavailable for WebSocket replica: %v; retrying in %s", err, rabbitReconnect)
-			if !wait(ctx, rabbitReconnect) {
+			log.Printf("RabbitMQ unavailable for WebSocket replica %s: %v; retrying in %s", replicaID, err, rabbitReconnectDelay)
+			if !wait(ctx, rabbitReconnectDelay) {
 				return
 			}
 			continue
 		}
 
-		log.Printf("WebSocket replica consuming RabbitMQ fanout queue %s", consumer.QueueName())
-		err = consumer.Run(ctx, func(_ context.Context, event rabbitmq.Event) error {
-			return deliverRealtimeEvent(wsServer, event)
+		consumerCtx, cancel := context.WithCancel(ctx)
+		if err := registerReplica(consumerCtx, replicaID, consumer.QueueName()); err != nil {
+			cancel()
+			_ = consumer.Close()
+			ready.Store(false)
+			log.Printf("register WebSocket replica %s in Redis: %v", replicaID, err)
+			if !wait(ctx, rabbitReconnectDelay) {
+				return
+			}
+			continue
+		}
+
+		ready.Store(true)
+		go refreshReplicaPresence(consumerCtx, replicaID, consumer.QueueName())
+		log.Printf("WebSocket replica %s consuming RabbitMQ queue %s", replicaID, consumer.QueueName())
+
+		err = consumer.Run(consumerCtx, func(_ context.Context, command rabbitmq.Delivery) error {
+			payload, marshalErr := json.Marshal(command.Notification)
+			if marshalErr != nil {
+				metrics.IncDeliveryFailure()
+				return marshalErr
+			}
+			wsServer.deliver(command.UserID, command.ConnectionIDs, payload)
+			metrics.IncDeliveryCommand()
+			return nil
 		})
+
+		ready.Store(false)
+		cancel()
+		_ = cache.RDB.Del(context.Background(), replicaRegistryKey(replicaID)).Err()
 		if closeErr := consumer.Close(); closeErr != nil && ctx.Err() == nil {
 			log.Printf("close WebSocket RabbitMQ consumer: %v", closeErr)
 		}
@@ -171,35 +236,80 @@ func consumeRealtimeNotifications(ctx context.Context, wsServer *socketServer) {
 		}
 
 		metrics.IncRabbitReconnect()
-		log.Printf("WebSocket RabbitMQ consumer stopped: %v; reconnecting in %s", err, rabbitReconnect)
-		if !wait(ctx, rabbitReconnect) {
+		log.Printf("WebSocket replica %s RabbitMQ consumer stopped: %v; reconnecting in %s", replicaID, err, rabbitReconnectDelay)
+		if !wait(ctx, rabbitReconnectDelay) {
 			return
 		}
 	}
 }
 
-func deliverRealtimeEvent(wsServer *socketServer, event rabbitmq.Event) error {
-	payload, err := json.Marshal(outboundNotification{
-		ID:        event.ID,
-		Type:      event.Type,
-		Title:     stringValue(event.Title),
-		Content:   event.Content,
-		ActionURL: stringValue(event.ActionURL),
-	})
-	if err != nil {
-		metrics.IncRealtimeEventFailure()
-		return err
-	}
-
-	delivered := wsServer.deliver(event.UserID, payload)
-	metrics.IncRealtimeEvent(delivered)
-	return nil
-}
-
-func healthHandler(w http.ResponseWriter, _ *http.Request) {
+func liveHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))
+}
+
+func readinessHandler(w http.ResponseWriter, r *http.Request, deliveryReady *atomic.Bool) {
+	if !deliveryReady.Load() {
+		http.Error(w, "rabbitmq delivery route unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+	defer cancel()
+	if err := cache.RDB.Ping(ctx).Err(); err != nil {
+		http.Error(w, "redis unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
+
+func registerReplica(ctx context.Context, replicaID, queueName string) error {
+	return cache.RDB.Set(ctx, replicaRegistryKey(replicaID), queueName, replicaRegistryTTL).Err()
+}
+
+func refreshReplicaPresence(ctx context.Context, replicaID, queueName string) {
+	ticker := time.NewTicker(replicaRegistryTTL / 3)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			refreshCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			err := registerReplica(refreshCtx, replicaID, queueName)
+			cancel()
+			if err != nil {
+				log.Printf("refresh WebSocket replica registry %s: %v", replicaID, err)
+			}
+		}
+	}
+}
+
+func replicaRegistryKey(replicaID string) string {
+	return "websocket:replica:" + replicaID
+}
+
+func sessionRegistryKey(userID string) string {
+	return "user:sessions:" + userID
+}
+
+func registerSession(ctx context.Context, client *Client) error {
+	key := sessionRegistryKey(client.userID)
+	value := fmt.Sprintf("%s:%d", client.replicaID, time.Now().Add(sessionTTL).Unix())
+
+	if err := cache.RDB.HSet(ctx, key, client.connectionID, value).Err(); err != nil {
+		return err
+	}
+	if err := cache.RDB.Expire(ctx, key, sessionRegistryTTL).Err(); err != nil {
+		_ = cache.RDB.HDel(context.Background(), key, client.connectionID).Err()
+		return err
+	}
+	return nil
 }
 
 func isAllowedOrigin(r *http.Request) bool {
@@ -240,27 +350,16 @@ func isAllowedOrigin(r *http.Request) bool {
 	return false
 }
 
-func (s *socketServer) add(c *Client) {
+func (s *socketServer) add(client *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.clients[c.connectionID] = c
-	if s.byUser[c.userID] == nil {
-		s.byUser[c.userID] = make(map[string]*Client)
-	}
-	s.byUser[c.userID][c.connectionID] = c
+	s.clients[client.connectionID] = client
 }
 
-func (s *socketServer) remove(c *Client) {
+func (s *socketServer) remove(client *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	delete(s.clients, c.connectionID)
-	userConnections := s.byUser[c.userID]
-	delete(userConnections, c.connectionID)
-	if len(userConnections) == 0 {
-		delete(s.byUser, c.userID)
-	}
+	delete(s.clients, client.connectionID)
 }
 
 func (s *socketServer) closeAll() {
@@ -276,12 +375,14 @@ func (s *socketServer) closeAll() {
 	}
 }
 
-func (s *socketServer) deliver(userID string, payload []byte) int {
+func (s *socketServer) deliver(userID string, connectionIDs []string, payload []byte) int {
 	s.mu.RLock()
-	userConnections := s.byUser[userID]
-	clients := make([]*Client, 0, len(userConnections))
-	for _, client := range userConnections {
-		clients = append(clients, client)
+	clients := make([]*Client, 0, len(connectionIDs))
+	for _, connectionID := range connectionIDs {
+		client, ok := s.clients[connectionID]
+		if ok && client.userID == userID {
+			clients = append(clients, client)
+		}
 	}
 	s.mu.RUnlock()
 
@@ -295,9 +396,17 @@ func (s *socketServer) deliver(userID string, payload []byte) int {
 func (c *Client) close() {
 	c.closeOnce.Do(func() {
 		close(c.done)
-		_ = c.conn.Close()
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
 		c.server.remove(c)
 		metrics.ConnectionClosed()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := cache.RDB.HDel(ctx, sessionRegistryKey(c.userID), c.connectionID).Err(); err != nil {
+			log.Printf("remove WebSocket session %s: %v", c.connectionID, err)
+		}
 	})
 }
 
@@ -312,11 +421,11 @@ func (c *Client) writePump() {
 		select {
 		case <-c.done:
 			return
-		case msg := <-c.send:
+		case message := <-c.send:
 			if err := c.conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				return
 			}
-			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -324,6 +433,14 @@ func (c *Client) writePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			err := registerSession(ctx, c)
+			cancel()
+			if err != nil {
+				log.Printf("refresh WebSocket session %s: %v", c.connectionID, err)
 				return
 			}
 		}
@@ -358,13 +475,6 @@ func (c *Client) SendNotification(notification []byte) {
 		log.Printf("[SLOW CLIENT] dropping connection for user %s", c.userID)
 		c.close()
 	}
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func wait(ctx context.Context, delay time.Duration) bool {

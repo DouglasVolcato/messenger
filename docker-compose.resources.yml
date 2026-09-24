@@ -30,6 +30,14 @@ services:
     storage_opt:
       size: "512M"
 
+  websocket-worker:
+    cpus: "0.5"
+    mem_limit: 256M
+    memswap_limit: 256M
+    pids_limit: 128
+    storage_opt:
+      size: "512M"
+
   load-balancer:
     cpus: "0.5"
     mem_limit: 128M

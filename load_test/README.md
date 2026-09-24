@@ -92,7 +92,7 @@ The initial workload distribution is intentionally simple:
  2% deletes
 ```
 
-This is only the baseline. Later experiments can split these into dedicated scenarios such as hot-chat fanout, reconnect storms, login saturation, slow clients or cache stampedes.
+This is only the baseline. Later experiments can split these into dedicated scenarios such as hot-chat routing pressure, reconnect storms, login saturation, slow clients or cache stampedes.
 
 ## Running with Docker Compose
 
@@ -108,7 +108,8 @@ Optionally scale the application before the test:
 docker compose up -d \
   --scale server=3 \
   --scale websocket=3 \
-  --scale publisher-worker=2
+  --scale publisher-worker=2 \
+  --scale websocket-worker=2
 ```
 
 Then start the tester profile:
@@ -267,7 +268,7 @@ It contains the initial views for:
 - memory by Compose service;
 - network RX/TX by Compose service;
 - publisher outbox backlog and oldest-event age;
-- WebSocket fanout events received, locally matched and ignored per replica;
+- WebSocket-worker events processed/failed by priority, Redis session resolution, targeted replica routes and stale replica routes;
 - RabbitMQ backlog;
 - server DB pool usage;
 - host CPU.
@@ -325,7 +326,7 @@ This first tester is intended to establish a repeatable baseline. It does not ye
 Useful next scenarios are:
 
 - WebSocket reconnect storm with and without jitter;
-- one very hot chat with thousands of subscribed users;
+- one very hot chat with thousands of subscribed users and many replica-routing decisions;
 - slow WebSocket consumers;
 - login-only CPU saturation;
 - cache-hit/cache-miss comparison;
