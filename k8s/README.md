@@ -98,6 +98,30 @@ kubectl apply -f k8s/load-test.yaml
 kubectl -n messenger logs -f job/messenger-load-tester
 ```
 
+## Metrics and dashboards
+
+Install the Kubernetes observability stack after the core architecture is running. The dashboard ConfigMap is generated from the same Grafana dashboard files used by Docker Compose.
+
+```bash
+kubectl -n messenger create configmap grafana-dashboards \
+  --from-file=messenger-overview.json=infra/grafana/dashboards/messenger-overview.json \
+  --from-file=load-testing.json=infra/grafana/dashboards/load-testing.json \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f k8s/observability.yaml
+kubectl -n messenger rollout status deployment/prometheus
+kubectl -n messenger rollout status deployment/grafana
+```
+
+Prometheus discovers every Pod annotated with `prometheus.io/scrape: "true"`, including each scaled application replica and the load-tester Job. It also scrapes RabbitMQ plus PostgreSQL, Redis and Nginx exporters.
+
+Open Grafana locally:
+
+```bash
+kubectl -n messenger port-forward svc/grafana 3000:3000
+```
+
+Visit `http://localhost:3000`, sign in with `admin` / `admin`, and open the `Messenger` folder. The lab-only credentials are declared in `k8s/observability.yaml`; replace them before non-local use.
+
 The `load-tester` Service exposes port `9091` while the Job Pod exists so Prometheus can scrape the generator metrics.
 
 A Job Pod template is immutable. After changing test parameters in `k8s/load-test.yaml`, recreate it:
