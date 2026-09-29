@@ -4,23 +4,6 @@ metadata:
   name: messenger
 ---
 apiVersion: v1
-kind: Secret
-metadata:
-  name: messenger-secrets
-  namespace: messenger
-type: Opaque
-stringData:
-  POSTGRES_DB: messager
-  POSTGRES_USER: messager
-  POSTGRES_PASSWORD: messager
-  RABBITMQ_DEFAULT_USER: messager
-  RABBITMQ_DEFAULT_PASS: messager
-  JWT_SECRET: local-development-secret
-  PASSWORD_SALT: local-development-salt
-  DB_URL: "postgres://messager:messager@postgres:5432/messager?sslmode=disable"
-  RABBITMQ_URL: "amqp://messager:messager@rabbitmq:5672/"
----
-apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-data
@@ -293,14 +276,14 @@ spec:
         - name: server
           image: messenger-server:local
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: messenger-secrets
           env:
             - name: PORT
               value: "8080"
             - name: DB_URL
-              valueFrom:
-                secretKeyRef:
-                  name: messenger-secrets
-                  key: DB_URL
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"
             - name: MIGRATIONS_DIR
               value: migrations
             - name: JWT_SECRET
@@ -374,6 +357,9 @@ spec:
         - name: websocket
           image: messenger-websocket:local
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: messenger-secrets
           env:
             - name: PORT
               value: "8080"
@@ -389,12 +375,7 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: messenger-secrets
-                  key: RABBITMQ_URL
-            - name: WEBSOCKET_ALLOWED_ORIGINS
-              value: ""
+              value: "amqp://$(RABBITMQ_DEFAULT_USER):$(RABBITMQ_DEFAULT_PASS)@rabbitmq:5672/"
           ports:
             - containerPort: 8080
           readinessProbe:
@@ -454,17 +435,14 @@ spec:
         - name: publisher-worker
           image: messenger-publisher-worker:local
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: messenger-secrets
           env:
             - name: DB_URL
-              valueFrom:
-                secretKeyRef:
-                  name: messenger-secrets
-                  key: DB_URL
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"
             - name: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: messenger-secrets
-                  key: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_DEFAULT_USER):$(RABBITMQ_DEFAULT_PASS)@rabbitmq:5672/"
             - name: METRICS_PORT
               value: "9090"
           ports:
@@ -519,12 +497,12 @@ spec:
         - name: websocket-worker
           image: messenger-websocket-worker:local
           imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: messenger-secrets
           env:
             - name: RABBITMQ_URL
-              valueFrom:
-                secretKeyRef:
-                  name: messenger-secrets
-                  key: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_DEFAULT_USER):$(RABBITMQ_DEFAULT_PASS)@rabbitmq:5672/"
             - name: REDIS_URL
               value: redis://redis:6379
             - name: METRICS_PORT

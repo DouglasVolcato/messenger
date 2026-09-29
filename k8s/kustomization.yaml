@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Kubernetes configuration uses the same repository .env as Docker Compose.
+resources:
+  - messenger.yaml
+
+secretGenerator:
+  - name: messenger-secrets
+    namespace: messenger
+    envs:
+      - ../.env
+
+# Workloads refer to this stable name. Re-applying after a .env change updates
+# the Secret; restart the affected Deployments to consume the new values.
+generatorOptions:
+  disableNameSuffixHash: true

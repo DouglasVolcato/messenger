@@ -1,0 +1,322 @@
+services:
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      PORT: 8080
+      DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
+      MIGRATIONS_DIR: ${MIGRATIONS_DIR:-migrations}
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      PASSWORD_SALT: ${PASSWORD_SALT:-local-development-salt}
+      REDIS_URL: redis://redis:6379
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - messenger
+
+  websocket:
+    build:
+      context: ../websocket
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret}
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
+      WEBSOCKET_ALLOWED_ORIGINS: ${WEBSOCKET_ALLOWED_ORIGINS:-}
+    expose:
+      - "8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - messenger
+
+  publisher-worker:
+    build:
+      context: ../publisher_worker
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      DB_URL: postgres://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
+      METRICS_PORT: 9090
+    expose:
+      - "9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  websocket-worker:
+    build:
+      context: ../websocket_worker
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-messager}:${RABBITMQ_DEFAULT_PASS:-messager}@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379
+      METRICS_PORT: 9090
+    expose:
+      - "9090"
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/readyz >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - messenger
+
+  load-balancer:
+    build:
+      context: ../infra/nginx
+      dockerfile: Dockerfile
+    expose:
+      - "80"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-messager}
+      POSTGRES_USER: ${POSTGRES_USER:-messager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-messager}
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-messager} -d ${POSTGRES_DB:-messager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-messager}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-messager}
+    command: >-
+      sh -c "rabbitmq-plugins enable --offline rabbitmq_prometheus && exec rabbitmq-server"
+    expose:
+      - "5672"
+      - "15672"
+      - "15692"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  # CDC is intentionally separate from the application queues. Debezium reads
+  # PostgreSQL logical replication and writes change events to Redis Streams.
+  # RabbitMQ remains reserved for the application's processing/event queues.
+  cdc:
+    build:
+      context: ../infra/cdc
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-messager}
+      POSTGRES_USER: ${POSTGRES_USER:-messager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-messager}
+      DEBEZIUM_SINK_TYPE: redis
+      DEBEZIUM_SINK_REDIS_ADDRESS: redis:6379
+    depends_on:
+      # The current server owns schema migrations, so CDC waits until at least
+      # one healthy server replica has completed them.
+      server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  prometheus:
+    build:
+      context: ../infra/prometheus
+      dockerfile: Dockerfile
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    expose:
+      - "9090"
+    volumes:
+      - prometheus_data:/prometheus
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  grafana:
+    build:
+      context: ../infra/grafana
+      dockerfile: Dockerfile
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    expose:
+      - "3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-messager}:${POSTGRES_PASSWORD:-messager}@postgres:5432/${POSTGRES_DB:-messager}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.3.0
+    command:
+      - --nginx.scrape-uri=http://load-balancer:8080/stub_status
+    depends_on:
+      - load-balancer
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.2
+    privileged: true
+    expose:
+      - "8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    restart: unless-stopped
+    networks:
+      - messenger
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    command:
+      - --path.rootfs=/host
+    pid: host
+    expose:
+      - "9100"
+    volumes:
+      - /:/host:ro,rslave
+    restart: unless-stopped
+    networks:
+      - messenger
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  messenger:
+    driver: bridge

@@ -99,13 +99,13 @@ This is only the baseline. Later experiments can split these into dedicated scen
 Start the normal architecture first:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Optionally scale the application before the test:
 
 ```bash
-docker compose up -d \
+docker compose -f docker/docker-compose.yml up -d \
   --scale server=3 \
   --scale websocket=3 \
   --scale publisher-worker=2 \
@@ -116,8 +116,8 @@ Then start the tester profile:
 
 ```bash
 docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.test.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.test.yml \
   up --build load-tester
 ```
 
@@ -162,8 +162,8 @@ TEST_WS_MAX=5000 \
 TEST_WS_STEP=500 \
 TEST_PHASE_DURATION=2m \
 docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.test.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.test.yml \
   up --build load-tester
 ```
 

@@ -1,6 +1,6 @@
 # Local scalability stack
 
-This directory contains the infrastructure used by `docker-compose.yml` for the architecture/scalability exercises.
+This directory contains the infrastructure used by `docker/docker-compose.yml` for the architecture/scalability exercises.
 
 ## Repository layout
 
@@ -34,7 +34,11 @@ infra/
   grafana/
   cdc/
 
-docker-compose.yml
+docker/
+  docker-compose.yml
+  docker-compose.resources.yml
+  docker-compose.test.yml
+  docker-compose.test.resources.yml
 .env
 ```
 
@@ -90,7 +94,7 @@ Same-host browser origins are accepted automatically.
 ## Start
 
 ```bash
-docker compose up --build
+docker compose -f docker/docker-compose.yml up --build
 ```
 
 With the default environment:
@@ -241,12 +245,12 @@ For a production-like exercise, the CDC sink can later be split onto a dedicated
 
 ## Resource limits
 
-The base Compose file remains portable. Optional CPU, memory, PID and writable-layer storage limits live in `docker-compose.resources.yml`:
+The base Compose file remains portable. Optional CPU, memory, PID and writable-layer storage limits live in `docker/docker-compose.resources.yml`:
 
 ```bash
 docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.resources.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.resources.yml \
   up -d --build
 ```
 
@@ -256,10 +260,10 @@ For a fully constrained load-test run, include the tester-specific storage overr
 
 ```bash
 docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.resources.yml \
-  -f docker-compose.test.yml \
-  -f docker-compose.test.resources.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.resources.yml \
+  -f docker/docker-compose.test.yml \
+  -f docker/docker-compose.test.resources.yml \
   up --build load-tester
 ```
 
@@ -274,15 +278,15 @@ The load generator is isolated behind the Compose `test` profile, so normal appl
 Start the normal stack first:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 Then run the load tester:
 
 ```bash
 docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.test.yml \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.test.yml \
   up --build load-tester
 ```
 
@@ -295,5 +299,5 @@ For all parameters, generated routes and cleanup guidance, see `load_test/README
 PostgreSQL, Redis, RabbitMQ, Prometheus and Grafana use named volumes. To reset the entire lab:
 
 ```bash
-docker compose down -v
+docker compose -f docker/docker-compose.yml down -v
 ```

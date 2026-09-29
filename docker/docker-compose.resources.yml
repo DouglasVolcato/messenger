@@ -1,0 +1,135 @@
+# Optional resource constraints for scalability/load-test experiments.
+# Usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.resources.yml up -d --build
+#
+# storage_opt limits the container writable layer only and depends on storage
+# driver support. Named volumes (PostgreSQL, Redis, RabbitMQ, Prometheus and
+# Grafana data) are intentionally not quota-limited by this portable override.
+services:
+  server:
+    cpus: "1.0"
+    mem_limit: 512M
+    memswap_limit: 512M
+    pids_limit: 256
+    storage_opt:
+      size: "1G"
+
+  websocket:
+    cpus: "1.0"
+    mem_limit: 512M
+    memswap_limit: 512M
+    pids_limit: 256
+    storage_opt:
+      size: "512M"
+
+  publisher-worker:
+    cpus: "0.5"
+    mem_limit: 256M
+    memswap_limit: 256M
+    pids_limit: 128
+    storage_opt:
+      size: "512M"
+
+  websocket-worker:
+    cpus: "0.5"
+    mem_limit: 256M
+    memswap_limit: 256M
+    pids_limit: 128
+    storage_opt:
+      size: "512M"
+
+  load-balancer:
+    cpus: "0.5"
+    mem_limit: 128M
+    memswap_limit: 128M
+    pids_limit: 128
+    storage_opt:
+      size: "256M"
+
+  postgres:
+    cpus: "1.5"
+    mem_limit: 1G
+    memswap_limit: 1G
+    pids_limit: 256
+    storage_opt:
+      size: "1G"
+
+  redis:
+    cpus: "1.0"
+    mem_limit: 512M
+    memswap_limit: 512M
+    pids_limit: 128
+    storage_opt:
+      size: "512M"
+
+  rabbitmq:
+    cpus: "1.0"
+    mem_limit: 768M
+    memswap_limit: 768M
+    pids_limit: 256
+    storage_opt:
+      size: "1G"
+
+  cdc:
+    cpus: "1.0"
+    mem_limit: 512M
+    memswap_limit: 512M
+    pids_limit: 256
+    storage_opt:
+      size: "1G"
+
+  prometheus:
+    cpus: "1.0"
+    mem_limit: 1G
+    memswap_limit: 1G
+    pids_limit: 256
+    storage_opt:
+      size: "1G"
+
+  grafana:
+    cpus: "0.5"
+    mem_limit: 512M
+    memswap_limit: 512M
+    pids_limit: 128
+    storage_opt:
+      size: "512M"
+
+  postgres-exporter:
+    cpus: "0.25"
+    mem_limit: 128M
+    memswap_limit: 128M
+    pids_limit: 64
+    storage_opt:
+      size: "256M"
+
+  redis-exporter:
+    cpus: "0.25"
+    mem_limit: 128M
+    memswap_limit: 128M
+    pids_limit: 64
+    storage_opt:
+      size: "256M"
+
+  nginx-exporter:
+    cpus: "0.25"
+    mem_limit: 128M
+    memswap_limit: 128M
+    pids_limit: 64
+    storage_opt:
+      size: "256M"
+
+  cadvisor:
+    cpus: "0.5"
+    mem_limit: 256M
+    memswap_limit: 256M
+    pids_limit: 128
+    storage_opt:
+      size: "256M"
+
+  node-exporter:
+    cpus: "0.25"
+    mem_limit: 128M
+    memswap_limit: 128M
+    pids_limit: 64
+    storage_opt:
+      size: "256M"

@@ -73,8 +73,17 @@ k3d image import \
 ## Start the architecture
 
 ```bash
-kubectl apply -f k8s/messenger.yaml
+# Run from the repository root. This imports .env into messenger-secrets,
+# just like Docker Compose imports it for the application services.
+kubectl kustomize --load-restrictor LoadRestrictionsNone k8s | kubectl apply -f -
 kubectl -n messenger get pods -w
+```
+
+After changing `.env`, run the Kustomize command again and restart the
+Deployments that must read the new environment:
+
+```bash
+kubectl -n messenger rollout restart deployment
 ```
 
 The lab manifest starts with:
@@ -88,6 +97,10 @@ The lab manifest starts with:
 - an Nginx edge exposed through the `load-balancer` Service.
 
 Resource requests and limits include CPU, memory and Kubernetes `ephemeral-storage`.
+The `ephemeral-storage` limits are the same sizes as `storage_opt.size` in
+`docker/docker-compose.resources.yml`: they limit the writable container layer, logs
+and node-local temporary data. Persistent named volumes in Compose have no
+portable quota; their Kubernetes PVC capacities stay independently configured.
 
 ## Run the load tester
 
