@@ -110,58 +110,22 @@ func (m *Message) Create(tx *sql.Tx, ctx context.Context) error {
 	if err := tx.QueryRowContext(ctx, `SELECT company_id FROM chats WHERE id = $1`, *m.ChatID).Scan(&companyID); err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, `
-		SELECT cu.user_id
-		FROM chat_users cu
-		JOIN company_users company_member
-		  ON company_member.user_id = cu.user_id
-		 AND company_member.company_id = $2
-		JOIN users u ON u.id = cu.user_id AND u.status = 'ACTIVE'
-		WHERE cu.chat_id = $1 AND cu.user_id <> $3`,
-		*m.ChatID, companyID, m.SenderUserID,
-	)
-	if err != nil {
-		return err
-	}
-	recipients := make([]string, 0)
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			rows.Close()
-			return err
-		}
-		recipients = append(recipients, userID)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return err
-	}
-	rows.Close()
 
 	title := "New chat message"
 	actionURL := "/companies/" + companyID + "/chats/" + *m.ChatID + "#message-" + m.ID
-	for _, userID := range recipients {
-		notification := UserNotification{
-			UserID:    userID,
-			Type:      "CHAT_MESSAGE",
-			Title:     &title,
-			Content:   senderName + " sent a message in a chat you follow.",
-			ActionURL: &actionURL,
-		}
-		if err := notification.Create(tx, ctx); err != nil {
-			return err
-		}
-		notificationOutbox := UserNotificationOutbox{
-			UserID:    userID,
-			Type:      "CHAT_MESSAGE",
-			Title:     &title,
-			Content:   senderName + " sent a message in a chat you follow.",
-			ActionURL: &actionURL,
-			Status:    "PENDING",
-		}
-		if err := notificationOutbox.Create(tx, ctx); err != nil {
-			return err
-		}
+	chatOutbox := ChatMessageOutbox{
+		MessageID:    m.ID,
+		ChatID:       *m.ChatID,
+		CompanyID:    companyID,
+		SenderUserID: m.SenderUserID,
+		Type:         "CHAT_MESSAGE",
+		Title:        &title,
+		Content:      senderName + " sent a message in a chat you follow.",
+		ActionURL:    &actionURL,
+		Status:       "PENDING",
+	}
+	if err := chatOutbox.Create(tx, ctx); err != nil {
+		return err
 	}
 
 	return nil

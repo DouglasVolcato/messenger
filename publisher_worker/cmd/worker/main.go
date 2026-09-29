@@ -75,6 +75,49 @@ func ProcessNotifications(ctx context.Context, publisher *rabbitmq.Publisher) er
 	return nil
 }
 
+func ProcessChatMessages(ctx context.Context, publisher *rabbitmq.Publisher) error {
+	started := time.Now()
+
+	tx, err := db.BeginTransaction(ctx)
+	if err != nil {
+		metrics.IncProcessingError()
+		return err
+	}
+	defer tx.Rollback()
+
+	chatOutbox := &models.ChatMessageOutbox{}
+	events, err := chatOutbox.GetManyWithLock(tx, ctx, batchSize)
+	if err != nil {
+		metrics.IncProcessingError()
+		return err
+	}
+
+	for index := range events {
+		event := &events[index]
+		if err := event.CreateDurableNotifications(tx, ctx); err != nil {
+			metrics.IncProcessingError()
+			return err
+		}
+		if err := publisher.PublishChatMessage(ctx, *event); err != nil {
+			metrics.IncProcessingError()
+			return err
+		}
+		metrics.IncPublished(event.Type)
+		if err := event.Delete(tx, ctx); err != nil {
+			metrics.IncProcessingError()
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		metrics.IncProcessingError()
+		return err
+	}
+	metrics.ObserveBatch(len(events), time.Since(started))
+	return nil
+}
+
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -111,7 +154,25 @@ func main() {
 			if ctx.Err() != nil {
 				return
 			}
-			panic(fmt.Errorf("process notifications: %w", err))
+			fmt.Fprintf(os.Stderr, "process user notifications: %v; retrying in 1s\n", err)
+			select {
+			case <-time.After(time.Second):
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+		if err := ProcessChatMessages(ctx, publisher); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "process chat messages: %v; retrying in 1s\n", err)
+			select {
+			case <-time.After(time.Second):
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 		if ctx.Err() != nil {
 			return

@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/lib/pq v1.12.3
 	github.com/redis/go-redis/v9 v9.22.0
 	github.com/subosito/gotenv v1.6.0
 )

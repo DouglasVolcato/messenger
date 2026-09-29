@@ -25,10 +25,26 @@ type Notification struct {
 	ActionURL *string `json:"action_url"`
 }
 
+type DeliveryTarget struct {
+	UserID        string   `json:"user_id"`
+	ConnectionIDs []string `json:"connection_ids"`
+}
+
 type Delivery struct {
-	UserID        string       `json:"user_id"`
-	ConnectionIDs []string     `json:"connection_ids"`
-	Notification  Notification `json:"notification"`
+	UserID        string           `json:"user_id,omitempty"`
+	ConnectionIDs []string         `json:"connection_ids,omitempty"`
+	Targets       []DeliveryTarget `json:"targets,omitempty"`
+	Notification  Notification     `json:"notification"`
+}
+
+func (d Delivery) EffectiveTargets() []DeliveryTarget {
+	if len(d.Targets) > 0 {
+		return d.Targets
+	}
+	if d.UserID == "" || len(d.ConnectionIDs) == 0 {
+		return nil
+	}
+	return []DeliveryTarget{{UserID: d.UserID, ConnectionIDs: d.ConnectionIDs}}
 }
 
 type Handler func(context.Context, Delivery) error
@@ -150,7 +166,7 @@ func (c *Consumer) Run(ctx context.Context, handler Handler) error {
 				}
 				continue
 			}
-			if command.UserID == "" || len(command.ConnectionIDs) == 0 || command.Notification.ID == "" {
+			if len(command.EffectiveTargets()) == 0 || command.Notification.ID == "" {
 				log.Printf("WebSocket replica rejected incomplete delivery message_id=%q", delivery.MessageId)
 				if nackErr := delivery.Nack(false, false); nackErr != nil {
 					return fmt.Errorf("dead-letter incomplete WebSocket delivery message_id=%q: %w", delivery.MessageId, nackErr)

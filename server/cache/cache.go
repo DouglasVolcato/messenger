@@ -203,3 +203,29 @@ func DeleteCompanyUsersCache(ctx context.Context, companyID string) error {
 	key := fmt.Sprintf("company:%s:users", companyID)
 	return RDB.Del(ctx, key).Err()
 }
+
+
+func ChatMembersCacheKey(chatID string) string {
+	return fmt.Sprintf("chat:members:%s", chatID)
+}
+
+func DeleteChatMembersCache(ctx context.Context, chatID string) error {
+	return RDB.Del(ctx, ChatMembersCacheKey(chatID)).Err()
+}
+
+func DeleteChatMembersCaches(ctx context.Context, chatIDs []string) error {
+	if len(chatIDs) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(chatIDs))
+	for _, chatID := range chatIDs {
+		if chatID == "" {
+			continue
+		}
+		keys = append(keys, ChatMembersCacheKey(chatID))
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return RDB.Del(ctx, keys...).Err()
+}

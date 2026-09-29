@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	exchangeName = "notifications"
-	dlqQueueName = "notifications.dlq"
+	exchangeName       = "notifications"
+	dlqQueueName       = "notifications.dlq"
+	chatFanoutQueueName = "notifications.chat_fanout"
 )
 
 var queueByType = map[string]string{
@@ -22,12 +23,16 @@ var queueByType = map[string]string{
 }
 
 type notificationEvent struct {
-	ID        string  `json:"id"`
-	UserID    string  `json:"user_id"`
-	Type      string  `json:"type"`
-	Title     *string `json:"title"`
-	Content   string  `json:"content"`
-	ActionURL *string `json:"action_url"`
+	ID           string  `json:"id"`
+	UserID       string  `json:"user_id,omitempty"`
+	ChatID       string  `json:"chat_id,omitempty"`
+	CompanyID    string  `json:"company_id,omitempty"`
+	SenderUserID string  `json:"sender_user_id,omitempty"`
+	MessageID    string  `json:"message_id,omitempty"`
+	Type         string  `json:"type"`
+	Title        *string `json:"title"`
+	Content      string  `json:"content"`
+	ActionURL    *string `json:"action_url"`
 }
 
 type Publisher struct {
@@ -78,7 +83,12 @@ func NewPublisher(url string) (*Publisher, error) {
 		"x-dead-letter-exchange":    exchangeName,
 		"x-dead-letter-routing-key": dlqQueueName,
 	}
+	queueNames := make([]string, 0, len(queueByType)+1)
 	for _, queueName := range queueByType {
+		queueNames = append(queueNames, queueName)
+	}
+	queueNames = append(queueNames, chatFanoutQueueName)
+	for _, queueName := range queueNames {
 		if _, err := channel.QueueDeclare(queueName, true, false, false, false, queueArgs); err != nil {
 			channel.Close()
 			connection.Close()
@@ -134,6 +144,25 @@ func (p *Publisher) Publish(ctx context.Context, notification models.UserNotific
 	return nil
 }
 
+func (p *Publisher) PublishChatMessage(ctx context.Context, event models.ChatMessageOutbox) error {
+	body, err := json.Marshal(notificationEvent{
+		ID:           event.ID,
+		ChatID:       event.ChatID,
+		CompanyID:    event.CompanyID,
+		SenderUserID: event.SenderUserID,
+		MessageID:    event.MessageID,
+		Type:         event.Type,
+		Title:        event.Title,
+		Content:      event.Content,
+		ActionURL:    event.ActionURL,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal chat message event %q: %w", event.ID, err)
+	}
+
+	return p.publishRawConfirmed(ctx, chatFanoutQueueName, event.ID, event.Type, body, nil)
+}
+
 func (p *Publisher) publishConfirmed(
 	ctx context.Context,
 	routingKey string,
@@ -141,12 +170,21 @@ func (p *Publisher) publishConfirmed(
 	body []byte,
 	headers amqp.Table,
 ) error {
+	return p.publishRawConfirmed(ctx, routingKey, notification.ID, notification.Type, body, headers)
+}
+
+func (p *Publisher) publishRawConfirmed(
+	ctx context.Context,
+	routingKey, messageID, messageType string,
+	body []byte,
+	headers amqp.Table,
+) error {
 	if err := p.channel.PublishWithContext(ctx, exchangeName, routingKey, true, false, amqp.Publishing{
 		Headers:      headers,
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
-		MessageId:    notification.ID,
-		Type:         notification.Type,
+		MessageId:    messageID,
+		Type:         messageType,
 		Body:         body,
 	}); err != nil {
 		return err
@@ -158,7 +196,7 @@ func (p *Publisher) publishConfirmed(
 			return fmt.Errorf("RabbitMQ publisher confirms channel closed")
 		}
 		if !confirmation.Ack {
-			return fmt.Errorf("RabbitMQ rejected message %q", notification.ID)
+			return fmt.Errorf("RabbitMQ rejected message %q", messageID)
 		}
 	case <-ctx.Done():
 		return ctx.Err()

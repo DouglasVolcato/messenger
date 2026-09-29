@@ -1,6 +1,6 @@
 # Local scalability stack
 
-This directory contains the infrastructure used by `docker/docker-compose.yml` for the architecture/scalability exercises.
+This directory contains the infrastructure used by the root `docker-compose.yml` for the architecture/scalability exercises.
 
 ## Repository layout
 
@@ -22,6 +22,12 @@ websocket/
   cache/
   pkg/
 
+publisher_worker/
+  Dockerfile
+  go.mod
+  cmd/
+  internal/
+
 websocket_worker/
   Dockerfile
   go.mod
@@ -34,11 +40,10 @@ infra/
   grafana/
   cdc/
 
-docker/
-  docker-compose.yml
-  docker-compose.resources.yml
-  docker-compose.test.yml
-  docker-compose.test.resources.yml
+docker-compose.yml
+docker-compose.resources.yml
+docker-compose.test.yml
+docker-compose.test.resources.yml
 .env
 ```
 
@@ -51,8 +56,8 @@ The Nginx load balancer listens on the internal Compose network. In Coolify, its
 | `load-balancer` | Nginx reverse proxy/load balancer for HTTP and WebSocket replicas | internal `80` (Coolify domain target) |
 | `server` | Main Go application | internal `8080` |
 | `websocket` | Authenticated WebSocket replicas with Redis session registration and a per-replica RabbitMQ delivery queue | internal `8080` |
-| `publisher-worker` | Reads notification outbox rows and publishes them to shared notification work queues | internal `9090` |
-| `websocket-worker` | Resolves active sessions in Redis and routes notifications to the correct WebSocket replica queue; metrics/readiness on the same internal listener | internal `9090` |
+| `publisher-worker` | Publishes per-user notification outbox rows plus one chat-level event per chat message; durable chat notifications are materialized asynchronously | internal `9090` |
+| `websocket-worker` | Resolves chat members through Redis cache/PostgreSQL fallback, resolves active sessions, groups recipients by WebSocket replica and publishes batched replica deliveries | internal `9090` |
 | `postgres` | Primary durable database with logical replication enabled | internal `5432` |
 | `redis` | Application cache plus WebSocket connection/replica registry with TTL | internal `6379` |
 | `rabbitmq` | Processing/event queues | internal `5672` |
@@ -94,7 +99,7 @@ Same-host browser origins are accepted automatically.
 ## Start
 
 ```bash
-docker compose -f docker/docker-compose.yml up --build
+docker compose -f docker-compose.yml up --build
 ```
 
 With the default environment:
@@ -150,38 +155,53 @@ websocket.delivery.<replica_id>
 
 bound to the durable direct exchange `websocket.delivery` with routing key `<replica_id>`.
 
-Realtime delivery therefore has two RabbitMQ stages:
+Realtime delivery therefore has two RabbitMQ stages. Direct/member notifications remain user-targeted; chat messages use one chat-level event and defer fanout to the workers:
 
 ```text
 server transaction
       |
-      v
-notification outbox
+      +--> direct/member: user_notifications_outbox
       |
-      v
-publisher-worker
-      |
-      v
+      +--> chat message: chat_message_outbox (1 row)
+                        |
+                        v
+                publisher-worker
+                        |
+                        +--> bulk INSERT durable user_notifications
+                        |
+                        v
 notifications.direct_message
-notifications.chat_message
+notifications.chat_fanout
 notifications.company_membership
-      |
-      v
-websocket-worker
-      |
-      +--> Redis: resolve active connection IDs + replica IDs
-      |
-      v
-websocket.delivery exchange
-      |
-      +--> websocket.delivery.<replica-A>
-      +--> websocket.delivery.<replica-B>
-      +--> websocket.delivery.<replica-C>
-                    |
-                    v
-             local sockets only
+
+(legacy per-user CHAT_MESSAGE backlog remains on notifications.chat_message)
+                        |
+                        v
+                websocket-worker
+                        |
+             +----------+-----------+
+             |                      |
+             v                      v
+ chat:members:<chat_id>    user:sessions:<user_id>
+       Redis cache              Redis registry
+             |                      |
+             +----------+-----------+
+                        |
+                 group by replica
+                        |
+                        v
+              websocket.delivery
+                        |
+             +----------+----------+
+             |          |          |
+             v          v          v
+websocket.delivery.A  .B         .C
+             |          |          |
+             v          v          v
+         local sockets only
 ```
 
+The chat-membership cache uses a TTL and is explicitly invalidated after committed subscribe/unsubscribe operations and company-member removal. Cache misses are rebuilt from PostgreSQL.
 Multiple `websocket-worker` replicas compete for the shared notification work queues. A worker processes each notification once, resolves the user's active sessions in Redis, groups connection IDs by replica, and publishes one delivery command per target replica.
 
 This keeps routing explicit without requiring direct Pod-to-Pod gRPC. When Kubernetes creates a new WebSocket Pod, that Pod gets a new replica ID, registers its Redis presence and declares its own RabbitMQ delivery queue. When it disappears, the exclusive queue is removed and its Redis presence/session entries expire through TTL.
@@ -201,7 +221,7 @@ Prometheus uses Docker DNS service discovery for the scalable Go services:
 
 This keeps each replica visible as an independent Prometheus target.
 
-The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, publisher/outbox pressure, Redis-resolved WebSocket sessions and per-replica RabbitMQ routing throughput.
+The first application metrics include HTTP request rate/latency, database-pool pressure, active WebSocket connections, slow-client disconnects, separate per-user/chat outbox pressure, chat-membership cache hits/misses, Redis-resolved WebSocket sessions and per-replica RabbitMQ routing throughput.
 
 The Compose stack also includes:
 
@@ -245,12 +265,12 @@ For a production-like exercise, the CDC sink can later be split onto a dedicated
 
 ## Resource limits
 
-The base Compose file remains portable. Optional CPU, memory, PID and writable-layer storage limits live in `docker/docker-compose.resources.yml`:
+The base Compose file remains portable. Optional CPU, memory, PID and writable-layer storage limits live in `docker-compose.resources.yml`:
 
 ```bash
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.resources.yml \
+  -f docker-compose.yml \
+  -f docker-compose.resources.yml \
   up -d --build
 ```
 
@@ -260,10 +280,10 @@ For a fully constrained load-test run, include the tester-specific storage overr
 
 ```bash
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.resources.yml \
-  -f docker/docker-compose.test.yml \
-  -f docker/docker-compose.test.resources.yml \
+  -f docker-compose.yml \
+  -f docker-compose.resources.yml \
+  -f docker-compose.test.yml \
+  -f docker-compose.test.resources.yml \
   up --build load-tester
 ```
 
@@ -278,15 +298,15 @@ The load generator is isolated behind the Compose `test` profile, so normal appl
 Start the normal stack first:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d --build
 ```
 
 Then run the load tester:
 
 ```bash
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.test.yml \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
   up --build load-tester
 ```
 
@@ -299,5 +319,5 @@ For all parameters, generated routes and cleanup guidance, see `load_test/README
 PostgreSQL, Redis, RabbitMQ, Prometheus and Grafana use named volumes. To reset the entire lab:
 
 ```bash
-docker compose -f docker/docker-compose.yml down -v
+docker compose -f docker-compose.yml down -v
 ```

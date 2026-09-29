@@ -220,7 +220,9 @@ func consumeReplicaDeliveries(ctx context.Context, replicaID string, wsServer *s
 				metrics.IncDeliveryFailure()
 				return marshalErr
 			}
-			wsServer.deliver(command.UserID, command.ConnectionIDs, payload)
+			for _, target := range command.EffectiveTargets() {
+				wsServer.deliver(target.UserID, target.ConnectionIDs, payload)
+			}
 			metrics.IncDeliveryCommand()
 			return nil
 		})

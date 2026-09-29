@@ -510,16 +510,36 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 				return
 			}
 		}
-		if _, err := tx.ExecContext(r.Context(), `
+		removedChatIDs := make([]string, 0)
+		rows, err := tx.QueryContext(r.Context(), `
 			DELETE FROM chat_users cu
 			USING chats ch
 			WHERE cu.chat_id = ch.id
 			  AND ch.company_id = $1
-			  AND cu.user_id = $2`, companyID, targetUserID); err != nil {
+			  AND cu.user_id = $2
+			RETURNING cu.chat_id`, companyID, targetUserID)
+		if err != nil {
 			_ = db.RollbackTransaction(tx)
 			http.Error(w, "could not remove chat subscriptions", http.StatusInternalServerError)
 			return
 		}
+		for rows.Next() {
+			var chatID string
+			if err := rows.Scan(&chatID); err != nil {
+				rows.Close()
+				_ = db.RollbackTransaction(tx)
+				http.Error(w, "could not remove chat subscriptions", http.StatusInternalServerError)
+				return
+			}
+			removedChatIDs = append(removedChatIDs, chatID)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			_ = db.RollbackTransaction(tx)
+			http.Error(w, "could not remove chat subscriptions", http.StatusInternalServerError)
+			return
+		}
+		rows.Close()
 		if err := membership.Delete(tx, r.Context()); err != nil {
 			_ = db.RollbackTransaction(tx)
 			http.Error(w, "could not remove user", http.StatusInternalServerError)
@@ -530,6 +550,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			return
 		}
 		_ = cache.DeleteCompanyUsersCache(r.Context(), companyID)
+		_ = cache.DeleteChatMembersCaches(r.Context(), removedChatIDs)
 		utils.Redirect(w, r, "/companies/"+companyID+"/members?success=User+removed")
 	}))
 
@@ -631,6 +652,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not subscribe", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteChatMembersCache(r.Context(), chatID)
 		utils.Redirect(w, r, "/companies/"+companyID+"/chats/"+chatID)
 	}))
 
@@ -668,6 +690,7 @@ func RegisterCompanyRoutes(mux *http.ServeMux, templ *template.Template, appVers
 			http.Error(w, "could not unsubscribe", http.StatusInternalServerError)
 			return
 		}
+		_ = cache.DeleteChatMembersCache(r.Context(), chatID)
 		utils.Redirect(w, r, "/companies/"+companyID+"?success=Chat+subscription+removed")
 	}))
 }
