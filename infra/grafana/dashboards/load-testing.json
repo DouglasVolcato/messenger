@@ -370,14 +370,22 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service!=\"\"}[1m]))",
+          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container_label_com_docker_compose_service!=\"\"}[1m]))",
           "legendFormat": "{{container_label_com_docker_compose_service}}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",container_label_com_docker_compose_service=\"\",name=~\".*(server|websocket|publisher-worker|websocket-worker|postgres|redis|rabbitmq|load-balancer|prometheus|grafana|cdc|exporter|load-tester).*\"}[1m]))",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Container CPU by service",
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "Per-container CPU from cAdvisor. Uses Docker Compose service labels when available and falls back to container names."
     },
     {
       "datasource": {
@@ -415,14 +423,22 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (container_label_com_docker_compose_service) (container_memory_working_set_bytes{container_label_com_docker_compose_service!=\"\"})",
+          "expr": "sum by (container_label_com_docker_compose_service) (container_memory_working_set_bytes{job=\"cadvisor\",container_label_com_docker_compose_service!=\"\"})",
           "legendFormat": "{{container_label_com_docker_compose_service}}",
           "range": true,
           "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (name) (container_memory_working_set_bytes{job=\"cadvisor\",container_label_com_docker_compose_service=\"\",name=~\".*(server|websocket|publisher-worker|websocket-worker|postgres|redis|rabbitmq|load-balancer|prometheus|grafana|cdc|exporter|load-tester).*\"})",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Container memory by service",
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "Working-set memory from cAdvisor. Uses Compose service labels when available and falls back to container names."
     },
     {
       "datasource": {
@@ -460,21 +476,36 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_network_receive_bytes_total{container_label_com_docker_compose_service!=\"\"}[1m]))",
+          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_network_receive_bytes_total{job=\"cadvisor\",container_label_com_docker_compose_service!=\"\"}[1m]))",
           "legendFormat": "RX {{container_label_com_docker_compose_service}}",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_network_transmit_bytes_total{container_label_com_docker_compose_service!=\"\"}[1m]))",
+          "expr": "sum by (container_label_com_docker_compose_service) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",container_label_com_docker_compose_service!=\"\"}[1m]))",
           "legendFormat": "TX {{container_label_com_docker_compose_service}}",
           "range": true,
           "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (name) (rate(container_network_receive_bytes_total{job=\"cadvisor\",container_label_com_docker_compose_service=\"\",name=~\".*(server|websocket|publisher-worker|websocket-worker|postgres|redis|rabbitmq|load-balancer|prometheus|grafana|cdc|exporter|load-tester).*\"}[1m]))",
+          "legendFormat": "RX {{name}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum by (name) (rate(container_network_transmit_bytes_total{job=\"cadvisor\",container_label_com_docker_compose_service=\"\",name=~\".*(server|websocket|publisher-worker|websocket-worker|postgres|redis|rabbitmq|load-balancer|prometheus|grafana|cdc|exporter|load-tester).*\"}[1m]))",
+          "legendFormat": "TX {{name}}",
+          "range": true,
+          "refId": "D"
         }
       ],
       "title": "Container network throughput",
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "Network throughput from cAdvisor with a fallback for Docker runtimes that do not expose Compose labels."
     },
     {
       "datasource": {
@@ -759,13 +790,114 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[1m]))) * 100",
+          "expr": "((1 - avg(rate(node_cpu_seconds_total{job=\"node-exporter\",mode=\"idle\"}[1m]))) * 100) or ((100 * sum(rate(container_cpu_usage_seconds_total{job=\"cadvisor\",id=\"/\"}[1m]))) / max(machine_cpu_cores{job=\"cadvisor\"}))",
           "legendFormat": "host CPU",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Host CPU",
+      "type": "timeseries",
+      "description": "Host CPU from node-exporter, with cAdvisor root-cgroup usage as fallback."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "(100 * (1 - (sum(node_memory_MemAvailable_bytes{job=\"node-exporter\"}) / sum(node_memory_MemTotal_bytes{job=\"node-exporter\"})))) or ((100 * sum(container_memory_working_set_bytes{job=\"cadvisor\",id=\"/\"})) / max(machine_memory_bytes{job=\"cadvisor\"}))",
+          "legendFormat": "host memory",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Host memory usage",
+      "description": "Host memory from node-exporter, with cAdvisor root-cgroup working set as fallback.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "up{job=\"cadvisor\"}",
+          "legendFormat": "cAdvisor {{instance}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "up{job=\"node-exporter\"}",
+          "legendFormat": "node-exporter {{instance}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Resource collectors health",
+      "description": "1 = Prometheus can scrape the collector. If this panel is 0, CPU/memory/network panels cannot be populated.",
       "type": "timeseries"
     }
   ],
@@ -787,6 +919,6 @@
   "timezone": "browser",
   "title": "Messenger - Load Testing",
   "uid": "messenger-load-testing",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

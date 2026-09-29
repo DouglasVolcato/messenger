@@ -232,6 +232,10 @@ The Compose stack also includes:
 - Nginx exporter;
 - RabbitMQ native Prometheus metrics.
 
+The resource collectors are intentionally independent from the application metrics. The load-testing dashboard contains a `Resource collectors health` panel: `up{job="cadvisor"}` and `up{job="node-exporter"}` must be `1` before container/host resource charts can contain data.
+
+The Compose cAdvisor configuration keeps Docker container labels enabled so Grafana can group scaled containers by `com.docker.compose.service`. It collects CPU, memory and network data and disables filesystem/disk collection, which is not used by the current dashboard and avoids Docker storage-driver incompatibilities on newer Docker releases. The dashboard also falls back to container names if Compose labels are unavailable.
+
 Grafana automatically provisions both `Messenger - Local Architecture Overview` and `Messenger - Load Testing`, together with the Prometheus datasource.
 
 The optional `load-tester` Compose service exposes its own metrics on port `9091` while a test is running. See `load_test/README.md` for usage.
@@ -313,6 +317,15 @@ docker compose \
 It gradually increases generated users, HTTP request rate and active WebSocket connections while Prometheus/Grafana collect both injected-load and system metrics.
 
 For all parameters, generated routes and cleanup guidance, see `load_test/README.md`.
+
+If CPU, memory or network panels show `No data`, check the collector panel first and then:
+
+```bash
+docker compose ps cadvisor node-exporter prometheus
+docker compose logs cadvisor node-exporter
+```
+
+A collector that is down is an infrastructure collection failure, not zero resource usage. After changing collector configuration, rebuild/recreate those services and Prometheus/Grafana so the provisioned dashboard and scrape configuration are refreshed.
 
 ## Persistent volumes
 
