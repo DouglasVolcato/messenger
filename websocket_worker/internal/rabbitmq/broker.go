@@ -31,6 +31,7 @@ type PriorityQueue struct {
 var PriorityQueues = []PriorityQueue{
 	{Priority: PriorityHigh, Name: "notifications.direct_message"},
 	{Priority: PriorityNormal, Name: "notifications.chat_message"},
+	{Priority: PriorityNormal, Name: "notifications.chat_fanout"},
 	{Priority: PriorityLow, Name: "notifications.company_membership"},
 }
 
@@ -42,10 +43,26 @@ type Notification struct {
 	ActionURL *string `json:"action_url"`
 }
 
+type DeliveryTarget struct {
+	UserID        string   `json:"user_id"`
+	ConnectionIDs []string `json:"connection_ids"`
+}
+
 type Delivery struct {
-	UserID        string       `json:"user_id"`
-	ConnectionIDs []string     `json:"connection_ids"`
-	Notification  Notification `json:"notification"`
+	UserID        string           `json:"user_id,omitempty"`
+	ConnectionIDs []string         `json:"connection_ids,omitempty"`
+	Targets       []DeliveryTarget `json:"targets,omitempty"`
+	Notification  Notification     `json:"notification"`
+}
+
+func (d Delivery) EffectiveTargets() []DeliveryTarget {
+	if len(d.Targets) > 0 {
+		return d.Targets
+	}
+	if d.UserID == "" || len(d.ConnectionIDs) == 0 {
+		return nil
+	}
+	return []DeliveryTarget{{UserID: d.UserID, ConnectionIDs: d.ConnectionIDs}}
 }
 
 type Consumer struct {
@@ -208,7 +225,7 @@ func (r *Router) Publish(ctx context.Context, replicaID string, delivery Deliver
 	if replicaID == "" {
 		return fmt.Errorf("replica ID is required")
 	}
-	if delivery.UserID == "" || len(delivery.ConnectionIDs) == 0 || delivery.Notification.ID == "" {
+	if len(delivery.EffectiveTargets()) == 0 || delivery.Notification.ID == "" {
 		return fmt.Errorf("incomplete WebSocket delivery")
 	}
 

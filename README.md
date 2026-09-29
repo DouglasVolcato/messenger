@@ -236,37 +236,48 @@ Load Balancer
   |
 Application Server
   |
-  +---- normal business tables
+  +---- messages
   |
-  +---- outbox events
-             |
-             v
-      Publisher Workers
-             |
-             v
-   Notification Work Queues
-             |
-             v
-      WebSocket Workers
-             |
-       +-----+------+
-       |            |
-       v            v
- Redis session   RabbitMQ direct
- registry        delivery exchange
-       |            |
-       +-------> replica routing
-                    |
-             +------+------+
-             |      |      |
-             v      v      v
-            WS1    WS2    WS3
-             |      |      |
-             +-- local connection maps
-                    |
-                    v
-                  Client
+  +---- direct/member outbox (one target user)
+  |
+  +---- chat_message_outbox (one event per chat message)
+              |
+              v
+       Publisher Workers
+              |
+              +--> materialize durable chat notifications asynchronously
+              |
+              v
+    Notification Work Queues
+              |
+              v
+       WebSocket Workers
+              |
+       +------+-------------------+
+       |                          |
+       v                          v
+chat:members:<chat_id>     user:sessions:<user_id>
+       Redis                       Redis
+       |                            |
+       +-------------+--------------+
+                     |
+              group by replica
+                     |
+                     v
+          RabbitMQ direct delivery
+                     |
+              +------+------+
+              |      |      |
+              v      v      v
+             WS1    WS2    WS3
+              |      |      |
+              +-- local connection maps
+                     |
+                     v
+                   Client
 ```
+
+Chat membership is cached with a TTL and invalidated whenever a user subscribes, unsubscribes, or is removed from a company. A cache miss is rebuilt from PostgreSQL. The HTTP message transaction therefore creates one chat-level outbox row instead of one notification/outbox row per subscribed user.
 
 The database remains the authoritative durable state. Realtime delivery exists to reduce latency, not to replace durable history.
 

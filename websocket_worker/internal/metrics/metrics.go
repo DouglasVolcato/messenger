@@ -21,6 +21,8 @@ var (
 	deliveryRoutesTotal    atomic.Uint64
 	deliveryFailuresTotal  atomic.Uint64
 	staleReplicaRoutesTotal atomic.Uint64
+	chatMemberCacheHitsTotal atomic.Uint64
+	chatMemberCacheMissesTotal atomic.Uint64
 	rabbitReconnectsTotal   atomic.Uint64
 	processingCount         atomic.Uint64
 	processingNanos         atomic.Uint64
@@ -55,6 +57,14 @@ func IncDeliveryFailure() {
 
 func IncStaleReplicaRoute() {
 	staleReplicaRoutesTotal.Add(1)
+}
+
+func IncChatMemberCacheHit() {
+	chatMemberCacheHitsTotal.Add(1)
+}
+
+func IncChatMemberCacheMiss() {
+	chatMemberCacheMissesTotal.Add(1)
 }
 
 func IncRabbitReconnect() {
@@ -144,6 +154,14 @@ func Handler() http.Handler {
 		fmt.Fprintln(w, "# HELP websocket_worker_stale_replica_routes_total Redis sessions ignored because the target replica registration expired.")
 		fmt.Fprintln(w, "# TYPE websocket_worker_stale_replica_routes_total counter")
 		fmt.Fprintf(w, "websocket_worker_stale_replica_routes_total %d\n", staleReplicaRoutesTotal.Load())
+
+		fmt.Fprintln(w, "# HELP websocket_worker_chat_member_cache_hits_total Chat membership cache hits.")
+		fmt.Fprintln(w, "# TYPE websocket_worker_chat_member_cache_hits_total counter")
+		fmt.Fprintf(w, "websocket_worker_chat_member_cache_hits_total %d\n", chatMemberCacheHitsTotal.Load())
+
+		fmt.Fprintln(w, "# HELP websocket_worker_chat_member_cache_misses_total Chat membership cache misses.")
+		fmt.Fprintln(w, "# TYPE websocket_worker_chat_member_cache_misses_total counter")
+		fmt.Fprintf(w, "websocket_worker_chat_member_cache_misses_total %d\n", chatMemberCacheMissesTotal.Load())
 
 		fmt.Fprintln(w, "# HELP websocket_worker_rabbitmq_reconnects_total RabbitMQ reconnect attempts.")
 		fmt.Fprintln(w, "# TYPE websocket_worker_rabbitmq_reconnects_total counter")

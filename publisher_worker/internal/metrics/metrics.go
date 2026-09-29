@@ -105,18 +105,38 @@ func Handler(database *sql.DB) http.Handler {
 		fmt.Fprintf(w, "publisher_batch_processing_duration_seconds_count %d\n", count)
 
 		if database != nil {
-			var pending int64
-			var oldestSeconds float64
-			err := database.QueryRowContext(r.Context(), `
+			var userPending, chatPending int64
+			var userOldestSeconds, chatOldestSeconds float64
+
+			userErr := database.QueryRowContext(r.Context(), `
 				SELECT COUNT(*),
 				       COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
 				FROM user_notifications_outbox
-				WHERE status = 'PENDING'`).Scan(&pending, &oldestSeconds)
-			if err == nil {
-				fmt.Fprintln(w, "# HELP publisher_outbox_pending_events Current pending notification outbox rows.")
+				WHERE status = 'PENDING'`).Scan(&userPending, &userOldestSeconds)
+			chatErr := database.QueryRowContext(r.Context(), `
+				SELECT COUNT(*),
+				       COALESCE(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))), 0)
+				FROM chat_message_outbox
+				WHERE status = 'PENDING'`).Scan(&chatPending, &chatOldestSeconds)
+
+			if userErr == nil && chatErr == nil {
+				oldestSeconds := userOldestSeconds
+				if chatOldestSeconds > oldestSeconds {
+					oldestSeconds = chatOldestSeconds
+				}
+				fmt.Fprintln(w, "# HELP publisher_outbox_pending_events Total pending rows across user and chat outboxes.")
 				fmt.Fprintln(w, "# TYPE publisher_outbox_pending_events gauge")
-				fmt.Fprintf(w, "publisher_outbox_pending_events %d\n", pending)
-				fmt.Fprintln(w, "# HELP publisher_outbox_oldest_event_age_seconds Age of the oldest pending notification.")
+				fmt.Fprintf(w, "publisher_outbox_pending_events %d\n", userPending+chatPending)
+
+				fmt.Fprintln(w, "# HELP publisher_user_outbox_pending_events Pending per-user notification outbox rows.")
+				fmt.Fprintln(w, "# TYPE publisher_user_outbox_pending_events gauge")
+				fmt.Fprintf(w, "publisher_user_outbox_pending_events %d\n", userPending)
+
+				fmt.Fprintln(w, "# HELP publisher_chat_outbox_pending_events Pending chat-level fanout outbox rows.")
+				fmt.Fprintln(w, "# TYPE publisher_chat_outbox_pending_events gauge")
+				fmt.Fprintf(w, "publisher_chat_outbox_pending_events %d\n", chatPending)
+
+				fmt.Fprintln(w, "# HELP publisher_outbox_oldest_event_age_seconds Age of the oldest pending event across both outboxes.")
 				fmt.Fprintln(w, "# TYPE publisher_outbox_oldest_event_age_seconds gauge")
 				fmt.Fprintf(w, "publisher_outbox_oldest_event_age_seconds %.6f\n", oldestSeconds)
 				fmt.Fprintln(w, "publisher_outbox_query_up 1")

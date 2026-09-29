@@ -501,6 +501,8 @@ spec:
             - secretRef:
                 name: messenger-secrets
           env:
+            - name: DB_URL
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"
             - name: RABBITMQ_URL
               value: "amqp://$(RABBITMQ_DEFAULT_USER):$(RABBITMQ_DEFAULT_PASS)@rabbitmq:5672/"
             - name: REDIS_URL

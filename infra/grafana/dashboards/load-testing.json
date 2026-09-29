@@ -511,17 +511,31 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "publisher_outbox_pending_events",
-          "legendFormat": "pending events",
+          "expr": "max(publisher_outbox_pending_events)",
+          "legendFormat": "total pending",
           "range": true,
           "refId": "A"
         },
         {
           "editorMode": "code",
-          "expr": "publisher_outbox_oldest_event_age_seconds",
-          "legendFormat": "oldest age (s)",
+          "expr": "max(publisher_chat_outbox_pending_events)",
+          "legendFormat": "chat fanout pending",
           "range": true,
           "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "max(publisher_user_outbox_pending_events)",
+          "legendFormat": "per-user pending",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "max(publisher_outbox_oldest_event_age_seconds)",
+          "legendFormat": "oldest age (s)",
+          "range": true,
+          "refId": "D"
         }
       ],
       "title": "Publisher outbox pressure",
@@ -587,6 +601,20 @@
           "legendFormat": "stale replica routes",
           "range": true,
           "refId": "D"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(websocket_worker_chat_member_cache_hits_total[1m]))",
+          "legendFormat": "member cache hits/s",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(websocket_worker_chat_member_cache_misses_total[1m]))",
+          "legendFormat": "member cache misses/s",
+          "range": true,
+          "refId": "F"
         }
       ],
       "title": "WebSocket worker routing throughput",
@@ -759,6 +787,6 @@
   "timezone": "browser",
   "title": "Messenger - Load Testing",
   "uid": "messenger-load-testing",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

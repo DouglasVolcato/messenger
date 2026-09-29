@@ -44,6 +44,8 @@ Every additional generated account is:
 
 The first chat is deliberately shared by all generated users. This already creates a useful fanout/hot-chat workload without adding domain complexity.
 
+Chat-message fanout is intentionally asynchronous. A chat send writes one `chat_message_outbox` row regardless of subscriber count. The publisher materializes durable per-user notifications outside the HTTP transaction and publishes one `notifications.chat_fanout` event. The WebSocket worker resolves `chat:members:<chat_id>` from Redis (PostgreSQL fallback on miss), resolves live sessions, and emits one batched delivery command per target WebSocket replica. This makes the load test useful for comparing HTTP p95 before/after moving O(N) fanout out of the request path.
+
 ## Gradual load model
 
 The tester grows three independent dimensions on every phase:
@@ -99,13 +101,13 @@ This is only the baseline. Later experiments can split these into dedicated scen
 Start the normal architecture first:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d --build
 ```
 
 Optionally scale the application before the test:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d \
+docker compose -f docker-compose.yml up -d \
   --scale server=3 \
   --scale websocket=3 \
   --scale publisher-worker=2 \
@@ -116,8 +118,8 @@ Then start the tester profile:
 
 ```bash
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.test.yml \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
   up --build load-tester
 ```
 
@@ -162,8 +164,8 @@ TEST_WS_MAX=5000 \
 TEST_WS_STEP=500 \
 TEST_PHASE_DURATION=2m \
 docker compose \
-  -f docker/docker-compose.yml \
-  -f docker/docker-compose.test.yml \
+  -f docker-compose.yml \
+  -f docker-compose.test.yml \
   up --build load-tester
 ```
 
@@ -267,8 +269,8 @@ It contains the initial views for:
 - CPU by Compose service;
 - memory by Compose service;
 - network RX/TX by Compose service;
-- publisher outbox backlog and oldest-event age;
-- WebSocket-worker events processed/failed by priority, Redis session resolution, targeted replica routes and stale replica routes;
+- total publisher outbox backlog, chat-level backlog, per-user backlog and oldest-event age;
+- WebSocket-worker events processed/failed by priority, chat-membership cache hits/misses, Redis session resolution, targeted replica routes and stale replica routes;
 - RabbitMQ backlog;
 - server DB pool usage;
 - host CPU.

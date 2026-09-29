@@ -42,9 +42,11 @@ Each WebSocket Pod receives `WEBSOCKET_REPLICA_ID` from `metadata.name` using th
 
 Each WebSocket Pod also creates one exclusive, auto-delete RabbitMQ queue named from its replica ID and refreshes a short-lived Redis replica-presence key.
 
-The publisher worker writes notification events to the shared priority work queues. `websocket-worker` replicas compete for those queues, resolve the target user's current Redis sessions, group connections by replica ID and publish one targeted delivery command per WebSocket replica.
+The publisher worker writes direct/member notifications to the shared work queues and converts each chat message into one `notifications.chat_fanout` event. `websocket-worker` replicas compete for those queues. For chat fanout they resolve the cached chat membership (`chat:members:<chat_id>`, PostgreSQL fallback on cache miss), resolve current Redis sessions, group recipients by replica ID and publish one batched delivery command per target WebSocket replica.
 
 This avoids broadcasting every event to every WebSocket Pod while also avoiding direct Pod-to-Pod gRPC addressing.
+
+The WebSocket worker also receives `DB_URL` because PostgreSQL is the authoritative fallback when the chat-membership cache is missing or expired. Subscribe/unsubscribe and company-member removal invalidate the corresponding Redis membership keys.
 
 ## Build local images
 
@@ -98,7 +100,7 @@ The lab manifest starts with:
 
 Resource requests and limits include CPU, memory and Kubernetes `ephemeral-storage`.
 The `ephemeral-storage` limits are the same sizes as `storage_opt.size` in
-`docker/docker-compose.resources.yml`: they limit the writable container layer, logs
+`docker-compose.resources.yml`: they limit the writable container layer, logs
 and node-local temporary data. Persistent named volumes in Compose have no
 portable quota; their Kubernetes PVC capacities stay independently configured.
 
