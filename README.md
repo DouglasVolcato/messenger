@@ -1,4 +1,4 @@
-# Messenger — Architecture Challenge
+# Messenger
 
 Messenger is a deliberately small messaging product used as a laboratory for scalable and distributed-system architecture.
 
